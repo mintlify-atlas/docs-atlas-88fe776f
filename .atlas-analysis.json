@@ -1,0 +1,116 @@
+{
+  "projectType": "saas",
+  "projectName": "Meridian",
+  "projectDescription": "Collaborative data analysis platform with real-time AI agents, streaming insights, and live chart updates",
+  "theme": "palm",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "key-features"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/data-upload",
+              "features/ai-agents",
+              "features/real-time-collaboration",
+              "features/query-editor",
+              "features/charts-visualization",
+              "features/insights-discovery"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/uploading-data",
+              "guides/querying-with-sql",
+              "guides/using-ai-agents",
+              "guides/creating-charts",
+              "guides/collaboration-tips"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/tech-stack",
+              "architecture/data-flow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Backend API",
+            "pages": [
+              "api/overview",
+              "api/convex-schema",
+              "api/query-log",
+              "api/insights-cache"
+            ]
+          },
+          {
+            "group": "Agent Tools",
+            "pages": [
+              "api/agents/overview",
+              "api/agents/query-tool",
+              "api/agents/chart-tool",
+              "api/agents/insights-tool",
+              "api/agents/web-scraping"
+            ]
+          },
+          {
+            "group": "DuckDB Integration",
+            "pages": [
+              "api/duckdb/query-api",
+              "api/duckdb/schema-management",
+              "api/duckdb/data-operations"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time collaborative data analysis with live presence",
+    "AI agents with streaming step-by-step reasoning",
+    "Natural language queries powered by Gemini",
+    "DuckDB-powered vectorized OLAP analytics",
+    "Live-updating charts and tables",
+    "Query reproducibility and history tracking",
+    "Automatic insights discovery",
+    "Multi-user simultaneous querying",
+    "Web scraping integration with Firecrawl",
+    "CSV and SQL data import"
+  ],
+  "publicApiSurface": [
+    "POST /api/duckdb/query - Execute DuckDB queries",
+    "queryDuckDB(query: string) - Run SQL query on data",
+    "getTableSchema(tableName: string) - Get table structure",
+    "getSampleRows(tableName: string, limit: number) - Fetch sample data",
+    "createChart(config: ChartConfig) - Generate visualizations",
+    "generateInsights(data: any[]) - Auto-discover patterns",
+    "firecrawlSearch(query: string) - Web search integration",
+    "scrapeWebPage(url: string) - Extract web data",
+    "analyzeDataQuality(tableName: string) - Data quality checks",
+    "compareTables(table1: string, table2: string) - Compare datasets",
+    "agentThreads table - Chat conversation storage",
+    "agentMessages table - Message history",
+    "queryLog table - Query execution history",
+    "insightsCache table - Cached insights",
+    "notifications table - Real-time notifications"
+  ]
+}
