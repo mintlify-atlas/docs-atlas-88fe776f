@@ -1,0 +1,223 @@
+---
+title: 'Query API'
+description: 'Execute SQL queries against DuckDB using the REST API'
+---
+
+## Overview
+
+The DuckDB Query API allows you to execute SQL queries against your DuckDB database through a simple REST endpoint. The API connects to MotherDuck for cloud-based data warehousing.
+
+## Endpoint
+
+### POST /api/duckdb/query
+
+Execute a SQL query against the DuckDB database.
+
+#### Request Format
+
+```json
+{
+  "query": "SELECT * FROM my_table LIMIT 10"
+}
+```
+
+**Parameters:**
+
+- `query` (string, required): SQL query string to execute
+
+#### Response Format
+
+**Success Response (200):**
+
+```json
+{
+  "columns": [
+    {
+      "name": "id",
+      "type": "BIGINT"
+    },
+    {
+      "name": "name",
+      "type": "VARCHAR"
+    },
+    {
+      "name": "created_at",
+      "type": "DATE"
+    }
+  ],
+  "rows": [
+    {
+      "id": 1,
+      "name": "John Doe",
+      "created_at": "2026-03-01"
+    },
+    {
+      "id": 2,
+      "name": "Jane Smith",
+      "created_at": "2026-03-02"
+    }
+  ]
+}
+```
+
+**Error Response (400):**
+
+```json
+{
+  "error": "Query is required and must be a string"
+}
+```
+
+**Error Response (500):**
+
+```json
+{
+  "error": "SQL error message or Unknown error occurred"
+}
+```
+
+## Query Examples
+
+### Basic SELECT Query
+
+```bash
+curl -X POST http://localhost:3000/api/duckdb/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT * FROM users WHERE active = true"
+  }'
+```
+
+### Aggregation Query
+
+```bash
+curl -X POST http://localhost:3000/api/duckdb/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT department, COUNT(*) as count, AVG(salary) as avg_salary FROM employees GROUP BY department"
+  }'
+```
+
+### JOIN Query
+
+```bash
+curl -X POST http://localhost:3000/api/duckdb/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT o.order_id, c.customer_name, o.total FROM orders o JOIN customers c ON o.customer_id = c.id"
+  }'
+```
+
+### Time Series Analysis
+
+```bash
+curl -X POST http://localhost:3000/api/duckdb/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "SELECT DATE_TRUNC('day', timestamp) as day, SUM(amount) as daily_total FROM transactions GROUP BY day ORDER BY day DESC"
+  }'
+```
+
+## Data Type Handling
+
+The API automatically handles type conversions for common DuckDB types:
+
+### BigInt Conversion
+
+DuckDB `BIGINT` values are converted to JavaScript numbers:
+
+```typescript
+// DuckDB: BIGINT
+// Response: number
+{ "id": 9007199254740991 }
+```
+
+### Date Conversion
+
+DuckDB date values (stored as days since epoch) are converted to ISO date strings:
+
+```typescript
+// DuckDB: DATE (internal: { days: 20513 })
+// Response: string
+{ "created_at": "2026-03-01" }
+```
+
+### Null Handling
+
+Null and undefined values are normalized to `null`:
+
+```typescript
+{ "optional_field": null }
+```
+
+## Error Handling
+
+The API provides detailed error messages for common issues:
+
+### Missing Query Parameter
+
+```json
+{
+  "error": "Query is required and must be a string"
+}
+```
+
+### Invalid SQL Syntax
+
+```json
+{
+  "error": "Parser Error: syntax error at or near 'SELCT'"
+}
+```
+
+### Missing Environment Variables
+
+```json
+{
+  "error": "MD_ACCESS_TOKEN environment variable is required"
+}
+```
+
+## Implementation Details
+
+### Source Code Reference
+
+API Route: `src/routes/api/duckdb/query.ts:7`
+
+Query Handler: `src/utils/duckdb.ts:32`
+
+### Connection Management
+
+The API uses a singleton DuckDB instance that connects to MotherDuck:
+
+```typescript
+// Connection string format
+`md:my_db?token=${encodedToken}`
+```
+
+Connections are automatically opened for each query and closed after execution to prevent resource leaks.
+
+### Performance Considerations
+
+- Each query opens a new connection and closes it after completion
+- Results are fully materialized in memory before returning
+- For large result sets, consider using `LIMIT` clauses
+- Complex queries may benefit from pre-aggregation or materialized views
+
+## Security
+
+<Warning>
+  The API executes raw SQL queries without sanitization. Ensure proper authentication and authorization are implemented before exposing this endpoint.
+</Warning>
+
+### Required Environment Variables
+
+- `MD_ACCESS_TOKEN`: MotherDuck access token for database authentication
+
+### Best Practices
+
+- Implement request authentication/authorization
+- Use parameterized queries when possible
+- Set query timeouts to prevent long-running operations
+- Monitor query performance and resource usage
+- Implement rate limiting to prevent abuse

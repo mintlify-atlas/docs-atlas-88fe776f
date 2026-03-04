@@ -1,0 +1,167 @@
+---
+title: 'Backend API Overview'
+description: 'Complete reference for Meridian Convex backend architecture and data models'
+icon: 'server'
+---
+
+## Introduction
+
+Meridian uses [Convex](https://convex.dev) as its backend-as-a-service platform. The backend handles data storage, real-time synchronization, authentication, and AI agent orchestration.
+
+## Architecture
+
+The Convex backend is organized into several functional modules:
+
+- **Schema Definition** - Type-safe data models defined in `convex/schema.ts`
+- **Query Log** - SQL query execution tracking and history
+- **Insights Cache** - AI-generated data insights with intelligent caching
+- **Agent System** - AI agents for query generation and data analysis
+- **File Management** - CSV/JSON file uploads and DuckDB integration
+- **Notifications** - Real-time activity broadcasting
+- **Authentication** - User management via Convex Auth
+
+## Core Tables
+
+Meridian's data model consists of seven primary tables:
+
+<CardGroup cols={2}>
+  <Card title="queryLog" icon="clock-rotate-left" href="/api/query-log">
+    Tracks all SQL queries executed by users with metadata and results
+  </Card>
+  <Card title="insightsCache" icon="sparkles" href="/api/insights-cache">
+    Stores AI-generated insights with intelligent caching by data signature
+  </Card>
+  <Card title="agentThreads" icon="comments" href="/api/convex-schema#agentthreads">
+    Conversation threads for AI agents (Query Agent & Analysis Agent)
+  </Card>
+  <Card title="agentMessages" icon="message" href="/api/convex-schema#agentmessages">
+    Individual messages within agent conversation threads
+  </Card>
+  <Card title="files" icon="file" href="/api/convex-schema#files">
+    Uploaded CSV/JSON files with DuckDB processing metadata
+  </Card>
+  <Card title="notifications" icon="bell" href="/api/convex-schema#notifications">
+    Real-time activity notifications for collaborative features
+  </Card>
+</CardGroup>
+
+## Authentication
+
+All API operations require authentication via [Convex Auth](https://labs.convex.dev/auth). The `checkAuth` utility function validates user sessions:
+
+```typescript
+import { checkAuth } from './authFns'
+
+export const myQuery = query({
+  handler: async (ctx) => {
+    const userId = await checkAuth(ctx)
+    // userId is guaranteed to be valid or an error is thrown
+  }
+})
+```
+
+## Indexing Strategy
+
+Tables are indexed for optimal query performance:
+
+- **User-scoped queries** - `by_userId` indexes for filtering user data
+- **Composite indexes** - Multi-field indexes for complex filtering (e.g., `by_userId_tableName`)
+- **Temporal queries** - `by_tableName_createdAt` for time-based filtering
+- **Unique lookups** - `by_agentThreadId`, `by_cacheKey` for direct access
+
+## Real-time Features
+
+Convex provides automatic real-time synchronization:
+
+```typescript
+// Frontend code - automatically updates on data changes
+const logs = useQuery(api.queryLog.getQueryLogs, { tableName })
+const notifications = useQuery(api.notifications.getLatestNotification, { tableName })
+```
+
+## Type Safety
+
+The schema provides full TypeScript type safety via code generation:
+
+```typescript
+import { Id } from './_generated/dataModel'
+import { api } from './_generated/api'
+
+type QueryLogId = Id<'queryLog'>
+type InsightsCacheRecord = typeof api.insights.getCachedInsights._returnType
+```
+
+## Data Validation
+
+All fields use Convex validators for runtime type checking:
+
+```typescript
+import { v } from 'convex/values'
+
+// String fields
+v.string()
+
+// Optional fields
+v.optional(v.string())
+
+// Complex objects
+v.object({
+  rowCount: v.optional(v.number()),
+  columnCount: v.optional(v.number())
+})
+
+// Arrays
+v.array(v.string())
+
+// Union types
+v.union(v.literal('query'), v.literal('analysis'))
+
+// Any type (use sparingly)
+v.any()
+```
+
+## Query Patterns
+
+### Filtering by User
+```typescript
+const userLogs = await ctx.db
+  .query('queryLog')
+  .withIndex('by_userId', q => q.eq('userId', userId))
+  .collect()
+```
+
+### Composite Filtering
+```typescript
+const tableLogs = await ctx.db
+  .query('queryLog')
+  .withIndex('by_userId_tableName', q => 
+    q.eq('userId', userId).eq('tableName', tableName)
+  )
+  .order('desc')
+  .take(100)
+```
+
+### Unique Lookups
+```typescript
+const cached = await ctx.db
+  .query('insightsCache')
+  .withIndex('by_cacheKey', q => q.eq('cacheKey', key))
+  .first()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Schema Reference" icon="database" href="/api/convex-schema">
+    Detailed table schemas with all fields and validators
+  </Card>
+  <Card title="Query Log API" icon="clock-rotate-left" href="/api/query-log">
+    Query execution tracking and history replay
+  </Card>
+  <Card title="Insights Cache" icon="sparkles" href="/api/insights-cache">
+    AI insights generation and caching system
+  </Card>
+  <Card title="Convex Docs" icon="book" href="https://docs.convex.dev">
+    Official Convex documentation
+  </Card>
+</CardGroup>

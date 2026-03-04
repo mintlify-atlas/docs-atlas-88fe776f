@@ -1,0 +1,529 @@
+---
+title: 'Web Search & Scraping'
+description: 'Search the web and extract content using Firecrawl integration'
+---
+
+## Overview
+
+Meridian's web integration tools enable AI agents to access external information through Firecrawl. These tools allow agents to search the web, scrape web pages, and extract structured data—essential for enriching database analysis with real-time external context.
+
+<Warning>
+  Web tools require a **Firecrawl API key** configured via the `FIRECRAWL_API_KEY` environment variable.
+</Warning>
+
+## Core Functions
+
+### firecrawlSearch
+
+Search the web for information using Firecrawl.
+
+<ParamField path="query" type="string" required>
+  The search query to look up on the web.
+</ParamField>
+
+<ParamField path="maxResults" type="number" default={10}>
+  Maximum number of results to return. Default is 10, maximum is 20.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  query: string
+  sources: Array<{
+    title: string
+    url: string
+    content: string  // Description/snippet
+  }>
+  sourceCount: number
+  results: any[]  // Full Firecrawl results
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const searchResults = await firecrawlSearch.handler(ctx, {
+  query: 'best practices for database indexing',
+  maxResults: 5
+})
+
+if (searchResults.success) {
+  console.log(`Found ${searchResults.sourceCount} sources:`)
+  searchResults.sources.forEach(source => {
+    console.log(`${source.title} - ${source.url}`)
+    console.log(source.content)
+  })
+}
+```
+
+### scrapeWebPage
+
+Scrape and extract content from a web page using Firecrawl.
+
+<ParamField path="url" type="string" required>
+  The URL of the web page to scrape.
+</ParamField>
+
+<ParamField path="includeMarkdown" type="boolean" default={true}>
+  Whether to include markdown formatted content.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  url: string
+  title: string
+  content: string  // Markdown or HTML content
+  markdown: string
+  description: string
+  links: string[]
+  contentLength: number
+  error?: string
+}
+```
+
+<Note>
+  The agent is instructed to extract insights from the markdown content and provide concise summaries rather than returning raw markdown directly to users.
+</Note>
+
+#### Example Usage
+
+```typescript
+const pageContent = await scrapeWebPage.handler(ctx, {
+  url: 'https://example.com/article',
+  includeMarkdown: true
+})
+
+if (pageContent.success) {
+  console.log(`Title: ${pageContent.title}`)
+  console.log(`Description: ${pageContent.description}`)
+  console.log(`Content length: ${pageContent.contentLength} characters`)
+  console.log(`Found ${pageContent.links.length} links`)
+}
+```
+
+### extractWebPage
+
+Extract structured data from one or more web pages using Firecrawl.
+
+<ParamField path="urls" type="string[]" required>
+  Array of URLs to extract data from.
+</ParamField>
+
+<ParamField path="prompt" type="string" required>
+  A prompt describing what data to extract from the web pages.
+</ParamField>
+
+<ParamField path="schema" type="object">
+  Optional JSON schema defining the structure of the data to extract.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  urls: string[]
+  data: any[]  // Extracted structured data
+  extractedCount: number
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const extractedData = await extractWebPage.handler(ctx, {
+  urls: [
+    'https://store.example.com/product/1',
+    'https://store.example.com/product/2'
+  ],
+  prompt: 'Extract product name, price, and availability',
+  schema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      price: { type: 'number' },
+      available: { type: 'boolean' }
+    }
+  }
+})
+
+if (extractedData.success) {
+  console.log(`Extracted data from ${extractedData.extractedCount} pages:`)
+  console.log(JSON.stringify(extractedData.data, null, 2))
+}
+```
+
+## Implementation Details
+
+### Firecrawl SDK Integration
+
+Web tools use the Firecrawl JavaScript SDK (from `table_agent.ts:150-186`):
+
+```typescript
+import Firecrawl from '@mendable/firecrawl-js'
+
+export const scrapeWebPageAction = action({
+  args: { url: v.string(), includeMarkdown: v.optional(v.boolean()) },
+  handler: async (_, { url, includeMarkdown = true }) => {
+    const apiKey = process.env.FIRECRAWL_API_KEY
+    if (!apiKey) {
+      throw new Error('FIRECRAWL_API_KEY not configured')
+    }
+
+    try {
+      const firecrawl = new Firecrawl({ apiKey })
+      const result = await firecrawl.scrape(url, {
+        formats: includeMarkdown ? ['markdown', 'html'] : ['html'],
+        onlyMainContent: true,
+      })
+
+      return {
+        success: true,
+        url,
+        title: result.metadata?.title || '',
+        markdown: result.markdown || '',
+        html: result.html || '',
+        content: result.markdown || result.html || '',
+        description: result.metadata?.description || '',
+        links: result.links || [],
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  },
+})
+```
+
+### Tool Definitions
+
+From `agent_tools.ts:463-510`:
+
+```typescript
+export const firecrawlSearch = createTool({
+  description:
+    'Search the web for information using Firecrawl. Use when you need current information, facts, or context not in the database.',
+  args: z.object({
+    query: z.string().describe('The search query'),
+    maxResults: z.number().optional().default(10),
+  }),
+  handler: async (ctx, args) => {
+    try {
+      const maxResults = Math.min(Math.max(args.maxResults || 10, 1), 20)
+      const result = await ctx.runAction(
+        api.table_agent.performFirecrawlSearch,
+        { query: args.query, maxResults }
+      )
+      return truncateToolResponse(result)
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error 
+          ? error.message 
+          : 'Web search failed. Make sure FIRECRAWL_API_KEY is configured.'
+      }
+    }
+  },
+})
+```
+
+## Search Implementation
+
+From `table_agent.ts:112-148`:
+
+```typescript
+export const performFirecrawlSearch = action({
+  args: { query: v.string(), maxResults: v.optional(v.number()) },
+  handler: async (_, { query, maxResults = 10 }) => {
+    const apiKey = process.env.FIRECRAWL_API_KEY
+    if (!apiKey) {
+      throw new Error('FIRECRAWL_API_KEY not configured')
+    }
+
+    try {
+      const firecrawl = new Firecrawl({ apiKey })
+      const result = await firecrawl.search(query, {
+        limit: Math.min(maxResults, 20),
+      })
+
+      return {
+        success: true,
+        query,
+        results: result.web || [],
+        sources: result.web?.map((r: any) => ({
+          title: r.title || '',
+          url: r.url || '',
+          content: r.description || '',
+        })) || [],
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  },
+})
+```
+
+## Content Extraction
+
+From `table_agent.ts:188-227`:
+
+```typescript
+export const extractWebPageAction = action({
+  args: {
+    urls: v.array(v.string()),
+    prompt: v.string(),
+    schema: v.optional(v.any()),
+  },
+  handler: async (_, { urls, prompt, schema }) => {
+    const apiKey = process.env.FIRECRAWL_API_KEY
+    if (!apiKey) {
+      throw new Error('FIRECRAWL_API_KEY not configured')
+    }
+
+    try {
+      const firecrawl = new Firecrawl({ apiKey })
+      const result = await firecrawl.extract({
+        urls,
+        prompt,
+        schema: schema || undefined,
+      })
+
+      return {
+        success: true,
+        urls,
+        data: result.data
+          ? Array.isArray(result.data) ? result.data : [result.data]
+          : [],
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  },
+})
+```
+
+## Response Truncation
+
+Web tool responses are truncated to optimize token usage:
+
+- **Content fields**: Maximum 5,000 characters (markdown/HTML)
+- **Description fields**: Maximum 2,000 characters
+- **Sources/results arrays**: Maximum 10 items
+- **Links array**: Maximum 10 items
+
+From `agent_tools.ts:26-48`:
+
+```typescript
+function truncateToolResponse(response: any): any {
+  const truncated = { ...response }
+  
+  if (typeof truncated.content === 'string') {
+    truncated.content = truncateString(truncated.content, MAX_CONTENT_LENGTH)
+  }
+  if (typeof truncated.markdown === 'string') {
+    truncated.markdown = truncateString(truncated.markdown, MAX_CONTENT_LENGTH)
+  }
+  if (Array.isArray(truncated.sources)) {
+    truncated.sources = truncateArray(truncated.sources, MAX_ARRAY_ITEMS)
+  }
+  // ...
+  return truncated
+}
+```
+
+## Usage in Agent Workflows
+
+Both Query and Analysis agents have access to web tools:
+
+```typescript
+const analysis_agent = new Agent(components.agent, {
+  name: 'analysis_agent',
+  languageModel: model,
+  instructions: `
+You are an assistant that explores and analyzes databases and can search the web.
+
+Use the available tools to:
+- Query and inspect DuckDB tables
+- Search or extract info from the web and URLs
+- Visualize or analyze data
+`,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    createChart,
+    firecrawlSearch,    // ← Web search
+    scrapeWebPage,      // ← Web scraping
+    extractWebPage,     // ← Structured extraction
+    // ...
+  },
+})
+```
+
+### Example Agent Workflow
+
+User: "Compare our sales data with industry benchmarks"
+
+1. Agent calls `queryDuckDB` to get internal sales data
+2. Agent calls `firecrawlSearch('retail industry benchmarks 2024')`
+3. Agent identifies relevant articles from search results
+4. Agent calls `scrapeWebPage(article_url)` for each relevant source
+5. Agent extracts benchmark data from scraped content
+6. Agent compares internal data with industry benchmarks
+7. Agent presents insights to user
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Data Enrichment" icon="database">
+    Augment database records with external information from web sources.
+  </Card>
+  <Card title="Competitive Analysis" icon="chart-line">
+    Gather competitor data and market information for comparison.
+  </Card>
+  <Card title="Real-time Context" icon="clock">
+    Access current events, news, and trends to contextualize data analysis.
+  </Card>
+  <Card title="Validation" icon="check-circle">
+    Verify database information against authoritative web sources.
+  </Card>
+</CardGroup>
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="API key not configured">
+    ```json
+    {
+      "success": false,
+      "error": "Firecrawl API key not configured. Set FIRECRAWL_API_KEY environment variable."
+    }
+    ```
+    **Solution**: Configure `FIRECRAWL_API_KEY` in environment variables.
+  </Accordion>
+
+  <Accordion title="Rate limit exceeded">
+    ```json
+    {
+      "success": false,
+      "error": "Rate limit exceeded. Please try again later."
+    }
+    ```
+    **Solution**: Reduce `maxResults` or wait before retrying.
+  </Accordion>
+
+  <Accordion title="Invalid URL">
+    ```json
+    {
+      "success": false,
+      "error": "Invalid URL format"
+    }
+    ```
+    **Solution**: Ensure URL includes protocol (http:// or https://).
+  </Accordion>
+
+  <Accordion title="Page not accessible">
+    ```json
+    {
+      "success": false,
+      "error": "Failed to access page: 404 Not Found"
+    }
+    ```
+    **Solution**: Verify URL is accessible and not behind authentication.
+  </Accordion>
+</AccordionGroup>
+
+## Firecrawl Configuration
+
+### Environment Setup
+
+Add to your `.env` file:
+
+```bash
+FIRECRAWL_API_KEY=your_api_key_here
+```
+
+Get an API key from [Firecrawl](https://firecrawl.dev).
+
+### Scraping Options
+
+From the implementation, scraping uses:
+
+```typescript
+const result = await firecrawl.scrape(url, {
+  formats: ['markdown', 'html'],  // Get both formats
+  onlyMainContent: true,          // Skip navigation, footers, etc.
+})
+```
+
+**Benefits:**
+- `onlyMainContent`: Removes boilerplate, focuses on article/page content
+- `markdown`: Clean, structured content easy for LLMs to process
+- `html`: Preserves formatting when markdown conversion loses structure
+
+## Best Practices
+
+<Steps>
+  <Step title="Use specific search queries">
+    More specific queries yield better, more relevant results.
+  </Step>
+  
+  <Step title="Limit results appropriately">
+    Start with fewer results (5-10) to reduce API usage and latency.
+  </Step>
+  
+  <Step title="Prefer structured extraction">
+    Use `extractWebPage` with schemas when you need specific data fields.
+  </Step>
+  
+  <Step title="Cache scraped content">
+    Store frequently accessed web content in your database to reduce API calls.
+  </Step>
+  
+  <Step title="Handle errors gracefully">
+    Always check `success` field and provide fallbacks for failed requests.
+  </Step>
+</Steps>
+
+## Security Considerations
+
+<Warning>
+  - Never expose your Firecrawl API key in client-side code
+  - Validate and sanitize URLs before scraping
+  - Be mindful of website terms of service
+  - Implement rate limiting to avoid excessive API usage
+</Warning>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Query Tool" icon="database" href="/api/agents/query-tool">
+    Query database to complement web data
+  </Card>
+  <Card title="Insights Tool" icon="lightbulb" href="/api/agents/insights-tool">
+    Generate insights combining database and web data
+  </Card>
+  <Card title="Using AI Agents" icon="robot" href="/guides/using-ai-agents">
+    Learn how agents leverage web tools
+  </Card>
+</CardGroup>
+
+## Firecrawl Resources
+
+- [Firecrawl Documentation](https://docs.firecrawl.dev)
+- [Firecrawl SDK Reference](https://github.com/mendableai/firecrawl)
+- [API Pricing](https://firecrawl.dev/pricing)

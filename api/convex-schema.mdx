@@ -1,0 +1,519 @@
+---
+title: 'Convex Schema Reference'
+description: 'Complete data model with field definitions, types, and validation rules'
+icon: 'database'
+---
+
+## Schema Overview
+
+Meridian's Convex schema is defined in `convex/schema.ts`. All tables are strongly typed with runtime validation using Convex validators.
+
+<Info>
+The schema provides precise TypeScript types that are automatically generated in `convex/_generated/dataModel.d.ts`.
+</Info>
+
+## files
+
+Stores metadata for uploaded CSV and JSON files with DuckDB processing status.
+
+### Fields
+
+<ParamField path="storageId" type="string" required>
+  Convex/R2 storage identifier for the uploaded file
+</ParamField>
+
+<ParamField path="fileName" type="string" required>
+  Original filename (e.g., `sales_data.csv`)
+</ParamField>
+
+<ParamField path="fileType" type="string" required>
+  MIME type (e.g., `text/csv`, `application/json`)
+</ParamField>
+
+<ParamField path="fileSize" type="number" required>
+  File size in bytes
+</ParamField>
+
+<ParamField path="uploadedBy" type="string" required>
+  User ID of the uploader
+</ParamField>
+
+<ParamField path="uploadedAt" type="number" required>
+  Unix timestamp (milliseconds) of upload time
+</ParamField>
+
+<ParamField path="duckdbTableName" type="string">
+  Name of the DuckDB table created from this file
+</ParamField>
+
+<ParamField path="duckdbProcessed" type="boolean">
+  Whether the file has been successfully loaded into DuckDB
+</ParamField>
+
+### Indexes
+
+- `by_uploadedBy` - Query files by user
+
+### Example Usage
+
+```typescript convex/csv.ts
+export const saveFile = mutation({
+  args: {
+    storageId: v.string(),
+    fileName: v.string(),
+    fileType: v.string(),
+    fileSize: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await checkAuth(ctx)
+    
+    const fileId = await ctx.db.insert('files', {
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+      fileSize: args.fileSize,
+      uploadedBy: userId,
+      uploadedAt: Date.now(),
+    })
+    
+    return fileId
+  },
+})
+
+// Get all files for current user
+export const getFiles = query({
+  handler: async (ctx) => {
+    const userId = await checkAuth(ctx)
+    
+    return await ctx.db
+      .query('files')
+      .filter(q => q.eq(q.field('uploadedBy'), userId))
+      .order('desc')
+      .collect()
+  },
+})
+```
+
+---
+
+## insightsCache
+
+Caches AI-generated insights to avoid redundant API calls for identical data.
+
+### Fields
+
+<ParamField path="cacheKey" type="string" required>
+  Hash of `tableName|query|columnCount|rowCount` for cache lookups
+</ParamField>
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table name the insights are for
+</ParamField>
+
+<ParamField path="query" type="string" required>
+  SQL query that produced the analyzed data
+</ParamField>
+
+<ParamField path="dataHash" type="string" required>
+  Secondary hash for data signature validation
+</ParamField>
+
+<ParamField path="insights" type="array" required>
+  Array of insight objects with structured findings
+  
+  <Expandable title="Insight Object Fields">
+    <ResponseField name="title" type="string" required>
+      Short title for the insight (e.g., "High Revenue Outlier")
+    </ResponseField>
+    <ResponseField name="description" type="string" required>
+      1-2 sentence explanation of the finding
+    </ResponseField>
+    <ResponseField name="type" type="string" required>
+      Insight category: `outlier`, `trend`, `aggregation`, `pattern`, `anomaly`
+    </ResponseField>
+    <ResponseField name="severity" type="string" required>
+      Importance level: `low`, `medium`, `high`
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="statisticalFindings" type="any" required>
+  Full statistical analysis results including means, outliers, trends
+</ParamField>
+
+<ParamField path="createdAt" type="number" required>
+  Unix timestamp when insights were generated
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  User who generated the insights
+</ParamField>
+
+### Indexes
+
+- `by_cacheKey` - Fast cache lookups
+- `by_userId` - Query user's cached insights
+
+### Example Usage
+
+See [Insights Cache API](/api/insights-cache) for detailed examples.
+
+---
+
+## queryLog
+
+Tracks all SQL queries executed against DuckDB tables with execution metadata.
+
+### Fields
+
+<ParamField path="query" type="string" required>
+  The SQL query string executed (e.g., `SELECT * FROM sales WHERE region = 'West'`)
+</ParamField>
+
+<ParamField path="executedAt" type="number" required>
+  Unix timestamp (milliseconds) of execution time
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  User who executed the query
+</ParamField>
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table the query was executed against
+</ParamField>
+
+<ParamField path="success" type="boolean" required>
+  Whether the query executed successfully
+</ParamField>
+
+<ParamField path="error" type="string">
+  Error message if `success` is `false`
+</ParamField>
+
+<ParamField path="sequenceNumber" type="number" required>
+  Global sequence number for temporal ordering (used for rollback/replay)
+</ParamField>
+
+<ParamField path="resultMetadata" type="object">
+  Query result statistics
+  
+  <Expandable title="Result Metadata Fields">
+    <ResponseField name="rowCount" type="number">
+      Number of rows returned
+    </ResponseField>
+    <ResponseField name="columnCount" type="number">
+      Number of columns in result set
+    </ResponseField>
+    <ResponseField name="executionTimeMs" type="number">
+      Query execution duration in milliseconds
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+### Indexes
+
+- `by_userId` - Query logs by user
+- `by_sequenceNumber` - Temporal ordering for replay
+- `by_tableName` - Query logs by table
+- `by_userId_tableName` - Combined filtering (most commonly used)
+
+### Example Usage
+
+See [Query Log API](/api/query-log) for detailed examples.
+
+---
+
+## agentThreads
+
+Conversation threads for AI agents (Query Agent and Analysis Agent).
+
+### Fields
+
+<ParamField path="userId" type="string" required>
+  User who owns this conversation thread
+</ParamField>
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table being analyzed in this thread
+</ParamField>
+
+<ParamField path="agentThreadId" type="string" required>
+  External thread ID from Convex Agent system
+</ParamField>
+
+<ParamField path="agentName" type="string" required>
+  Name of the agent (e.g., `Query Agent`, `Analysis Agent`)
+</ParamField>
+
+<ParamField path="title" type="string">
+  Thread title (auto-generated from first user message)
+</ParamField>
+
+<ParamField path="createdAt" type="number" required>
+  Unix timestamp when thread was created
+</ParamField>
+
+<ParamField path="updatedAt" type="number" required>
+  Unix timestamp of last update
+</ParamField>
+
+<ParamField path="lastMessageAt" type="number" required>
+  Unix timestamp of last message (for sorting)
+</ParamField>
+
+<ParamField path="lastMessageSummary" type="string">
+  Preview of the last message (first 200 characters)
+</ParamField>
+
+<ParamField path="lastMode" type="union">
+  Mode of the last message: `query` or `analysis`
+</ParamField>
+
+### Indexes
+
+- `by_agentThreadId` - Lookup thread by external ID
+- `by_user_table` - List threads for a user/table combination
+- `by_user_table_lastMessageAt` - Sorted thread list (most recent first)
+
+### Example Usage
+
+```typescript convex/agent_utils.ts
+export const listAgentThreads = query({
+  args: { tableName: v.string() },
+  handler: async (ctx, { tableName }) => {
+    const userId = await checkAuth(ctx)
+    
+    const threads = await ctx.db
+      .query('agentThreads')
+      .withIndex('by_user_table_lastMessageAt', q =>
+        q.eq('userId', userId).eq('tableName', tableName)
+      )
+      .collect()
+    
+    // Sort by most recent first
+    return threads.sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+  },
+})
+```
+
+---
+
+## agentMessages
+
+Individual messages within agent conversation threads.
+
+### Fields
+
+<ParamField path="threadId" type="Id<'agentThreads'>" required>
+  Reference to the parent thread
+</ParamField>
+
+<ParamField path="role" type="union" required>
+  Message sender: `user` or `assistant`
+</ParamField>
+
+<ParamField path="userId" type="string">
+  User ID (only for user messages)
+</ParamField>
+
+<ParamField path="agentName" type="string">
+  Agent name (only for assistant messages)
+</ParamField>
+
+<ParamField path="mode" type="union" required>
+  Message mode: `query` (SQL generation) or `analysis` (data exploration)
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  Full message content (user input or assistant response)
+</ParamField>
+
+<ParamField path="description" type="string">
+  Summary or description of the response
+</ParamField>
+
+<ParamField path="commands" type="array">
+  SQL commands generated by Query Agent (array of strings)
+</ParamField>
+
+<ParamField path="toolSteps" type="array">
+  Tool execution steps for Analysis Agent
+  
+  <Expandable title="Tool Step Fields">
+    <ResponseField name="tool" type="string" required>
+      Tool name (e.g., `queryDuckDB`, `createChart`, `generateInsights`)
+    </ResponseField>
+    <ResponseField name="args" type="any" required>
+      Tool input arguments
+    </ResponseField>
+    <ResponseField name="result" type="any">
+      Tool execution result
+    </ResponseField>
+    <ResponseField name="finished" type="boolean" required>
+      Whether tool execution completed
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="createdAt" type="number" required>
+  Unix timestamp of message creation
+</ParamField>
+
+### Indexes
+
+- `by_thread` - Query all messages in a thread (chronologically)
+
+### Example Usage
+
+```typescript convex/agent_utils.ts
+export const getAgentThreadMessages = query({
+  args: { agentThreadId: v.string() },
+  handler: async (ctx, { agentThreadId }) => {
+    const userId = await checkAuth(ctx)
+    
+    // Get thread
+    const thread = await ctx.db
+      .query('agentThreads')
+      .withIndex('by_agentThreadId', q => q.eq('agentThreadId', agentThreadId))
+      .unique()
+    
+    if (!thread || thread.userId !== userId) {
+      throw new Error('Thread not found or access denied')
+    }
+    
+    // Get messages
+    const messages = await ctx.db
+      .query('agentMessages')
+      .withIndex('by_thread', q => q.eq('threadId', thread._id))
+      .collect()
+    
+    return messages.sort((a, b) => a.createdAt - b.createdAt)
+  },
+})
+```
+
+---
+
+## notifications
+
+Real-time activity notifications for collaborative features.
+
+### Fields
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table the notification relates to
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  User who triggered the notification
+</ParamField>
+
+<ParamField path="userName" type="string">
+  Display name of the user
+</ParamField>
+
+<ParamField path="userImage" type="string">
+  Avatar URL of the user
+</ParamField>
+
+<ParamField path="type" type="union" required>
+  Notification type: `query`, `agent_query`, `agent_analysis`, `insights_generated`, `chart_created`
+</ParamField>
+
+<ParamField path="message" type="string" required>
+  Human-readable notification message
+</ParamField>
+
+<ParamField path="metadata" type="any">
+  Additional context data (e.g., query text, chart config)
+</ParamField>
+
+<ParamField path="createdAt" type="number" required>
+  Unix timestamp of notification creation
+</ParamField>
+
+### Indexes
+
+- `by_tableName` - Query notifications for a table
+- `by_tableName_createdAt` - Time-ordered notifications
+
+### Example Usage
+
+```typescript convex/notifications.ts
+export const broadcastNotification = mutation({
+  args: {
+    tableName: v.string(),
+    type: v.union(
+      v.literal('query'),
+      v.literal('agent_query'),
+      v.literal('agent_analysis'),
+      v.literal('insights_generated'),
+      v.literal('chart_created')
+    ),
+    message: v.string(),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error('Not authenticated')
+    
+    // Get user info
+    const user = await ctx.db.get(userId as Id<'users'>)
+    
+    return await ctx.db.insert('notifications', {
+      tableName: args.tableName,
+      userId: userId,
+      userName: user?.name,
+      userImage: user?.image,
+      type: args.type,
+      message: args.message,
+      metadata: args.metadata,
+      createdAt: Date.now(),
+    })
+  },
+})
+
+// Subscribe to latest notification
+export const getLatestNotification = query({
+  args: { tableName: v.string() },
+  handler: async (ctx, { tableName }) => {
+    return await ctx.db
+      .query('notifications')
+      .withIndex('by_tableName_createdAt', q => q.eq('tableName', tableName))
+      .order('desc')
+      .first()
+  },
+})
+```
+
+---
+
+## Type Generation
+
+Convex automatically generates TypeScript types from the schema:
+
+```typescript
+import { Doc, Id } from './_generated/dataModel'
+
+type QueryLog = Doc<'queryLog'>
+type QueryLogId = Id<'queryLog'>
+type InsightsCache = Doc<'insightsCache'>
+type AgentThread = Doc<'agentThreads'>
+type AgentMessage = Doc<'agentMessages'>
+type File = Doc<'files'>
+type Notification = Doc<'notifications'>
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Query Log API" icon="clock-rotate-left" href="/api/query-log">
+    Query execution tracking system
+  </Card>
+  <Card title="Insights Cache" icon="sparkles" href="/api/insights-cache">
+    AI insights generation and caching
+  </Card>
+  <Card title="Convex Validators" icon="shield-check" href="https://docs.convex.dev/database/schemas#validators">
+    Learn about Convex type validation
+  </Card>
+</CardGroup>

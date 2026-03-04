@@ -1,0 +1,472 @@
+---
+title: Technology Stack
+description: Detailed breakdown of technologies powering Meridian
+icon: layer-group
+---
+
+## Frontend Technologies
+
+### TanStack Start (1.132.2)
+
+**Full-stack React framework** providing SSR, routing, and server functions.
+
+```json
+// package.json dependencies
+"@tanstack/react-router": "^1.132.2",
+"@tanstack/react-start": "^1.132.2",
+"@tanstack/react-table": "^8.21.3"
+```
+
+**Key Features Used:**
+- File-based routing with dynamic parameters
+- Server functions for type-safe API calls
+- SSR with loader functions
+- API routes with handlers
+
+**Example Usage:**
+
+```typescript
+// File: src/routes/_authed/table.$table.tsx
+export const Route = createFileRoute('/_authed/table/$table')({
+  component: RouteComponent,
+  loader: ({ params: { table }, context }) => {
+    context.queryClient.ensureQueryData(tableQueryOptions(table))
+  },
+})
+```
+
+### React 19.1.1
+
+Latest React version with **concurrent features** and improved performance.
+
+**Modern Hooks Used:**
+- `useState`, `useEffect` - Standard state management
+- `useMemo`, `useCallback` - Performance optimization
+- `useRef` - DOM references and mutable values
+- `useSuspenseQuery` - Data fetching with suspense
+
+### Mantine UI 8.3.6
+
+**Comprehensive React component library** with 100+ components.
+
+**Packages Used:**
+
+```json
+"@mantine/core": "^8.3.6",          // Core components
+"@mantine/hooks": "^8.3.6",         // Utility hooks
+"@mantine/charts": "^8.3.8",        // Chart components
+"@mantine/dropzone": "^8.3.6",      // File upload
+"@mantine/notifications": "^8.3.6",  // Toast notifications
+"@mantine/modals": "^8.3.6",        // Modal dialogs
+"@mantine/spotlight": "^8.3.6",     // Command palette
+"@mantine/code-highlight": "^8.3.6" // Code syntax highlighting
+```
+
+**Key Components:**
+
+<CardGroup cols={2}>
+  <Card title="Data Display" icon="table">
+    Table, Card, Badge, Avatar, Paper
+  </Card>
+  <Card title="Inputs" icon="keyboard">
+    TextInput, Button, Select, FileInput
+  </Card>
+  <Card title="Layout" icon="grip">
+    Box, Stack, Group, Grid, Container
+  </Card>
+  <Card title="Feedback" icon="bell">
+    Alert, Notification, Modal, Loader
+  </Card>
+</CardGroup>
+
+### TanStack Table 8.21.3
+
+**Headless table library** for building powerful data grids.
+
+```typescript
+const reactTable = useReactTable({
+  data: paginatedRows,
+  columns: visibleColumns,
+  getCoreRowModel: getCoreRowModel(),
+  manualPagination: true,
+  pageCount: Math.ceil(data.rows.length / pageSize),
+})
+```
+
+**Features Used:**
+- Column definitions with accessors
+- Manual pagination for large datasets
+- Column visibility toggling
+- Type-safe cell rendering
+
+### TanStack Query 5.89.0
+
+**Powerful data fetching** and state management.
+
+```typescript
+const { data: files } = useQuery(convexQuery(api.csv.getFiles, {}))
+const queryClient = useQueryClient()
+await queryClient.invalidateQueries({ queryKey: ['tables', table] })
+```
+
+**Features:**
+- Automatic background refetching
+- Query caching and invalidation
+- Optimistic updates
+- Suspense integration
+
+### Recharts 3.4.1
+
+**Declarative charting library** built on D3.
+
+**Chart Types Supported:**
+- Line charts
+- Bar charts
+- Area charts
+- Pie charts
+- Scatter plots
+
+```typescript
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
+```
+
+### Tabler Icons 3.35.0
+
+Over **5000 MIT-licensed icons**.
+
+```typescript
+import {
+  IconDatabase,
+  IconUpload,
+  IconChartBar,
+  IconSparkles,
+} from '@tabler/icons-react'
+```
+
+## Backend Technologies
+
+### Convex 1.28.0
+
+**Backend-as-a-Service** with real-time database and serverless functions.
+
+**Core Features:**
+
+<Tabs>
+  <Tab title="Database">
+    **Reactive Database**
+    
+    ```typescript
+    // Schema definition
+    export default defineSchema({
+      files: defineTable({
+        storageId: v.string(),
+        fileName: v.string(),
+        fileType: v.string(),
+        uploadedBy: v.string(),
+        duckdbTableName: v.optional(v.string()),
+      }).index('by_uploadedBy', ['uploadedBy']),
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Functions">
+    **Serverless Functions**
+    
+    ```typescript
+    // Query - reads data
+    export const getFiles = query({
+      handler: async (ctx) => {
+        return await ctx.db.query('files').collect()
+      },
+    })
+    
+    // Mutation - writes data
+    export const saveFile = mutation({
+      handler: async (ctx, args) => {
+        return await ctx.db.insert('files', args)
+      },
+    })
+    
+    // Action - external API calls
+    export const generateInsights = action({
+      handler: async (ctx, args) => {
+        // Call external AI API
+      },
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Real-time">
+    **Automatic Subscriptions**
+    
+    ```typescript
+    // Client automatically updates when data changes
+    const files = useQuery(api.csv.getFiles)
+    ```
+  </Tab>
+</Tabs>
+
+**Convex Packages Used:**
+
+```json
+"@convex-dev/auth": "^0.0.90",       // Authentication
+"@convex-dev/r2": "^0.8.0",          // R2 storage integration
+"@convex-dev/agent": "^0.2.12",      // AI agent framework
+"@convex-dev/presence": "^0.2.1",    // Real-time presence
+"@convex-dev/react-query": "^0.0.0-alpha.11" // TanStack Query integration
+```
+
+### DuckDB (Node API 1.4.1)
+
+**High-performance analytical database** running in Node.js.
+
+```typescript
+import { DuckDBInstance } from '@duckdb/node-api'
+
+const db = await DuckDBInstance.create('md:my_db?token=${token}')
+const connection = await db.connect()
+const result = await connection.run('SELECT * FROM table')
+```
+
+**Capabilities:**
+- OLAP queries with columnar storage
+- SQL query execution
+- CSV/JSON data loading
+- Aggregate functions and window functions
+- MotherDuck cloud integration
+
+**Key Functions:**
+
+<CodeGroup>
+
+```typescript Query Execution
+export const queryDuckDB = createServerFn()
+  .handler(async ({ data: query }) => {
+    const db = await getDuckDB()
+    const connection = await db.connect()
+    const result = await connection.run(query)
+    const rows = await result.getRows()
+    return { columns, rows }
+  })
+```
+
+```typescript CSV Import
+export const createTableFromCSV = createServerFn()
+  .handler(async ({ csvUrl, tableName }) => {
+    await connection.run(`
+      CREATE TABLE ${tableName} AS
+      SELECT * FROM read_csv_auto('${csvPath}')
+    `)
+  })
+```
+
+```typescript JSON Import
+export const createTableFromJSON = createServerFn()
+  .handler(async ({ data, tableName }) => {
+    // Flatten nested structures
+    const flattened = flattenJSONData(data)
+    // Create table with inferred schema
+    // Insert rows
+  })
+```
+
+</CodeGroup>
+
+### Cloudflare R2
+
+**S3-compatible object storage** with zero egress fees.
+
+**Integration via @convex-dev/r2:**
+
+```typescript
+import { R2 } from '@convex-dev/r2'
+
+export const r2 = new R2(components.r2)
+
+// Store file
+const storageId = await r2.store(ctx, blob, { type: 'text/csv' })
+
+// Get URL
+const url = await r2.getUrl(storageId)
+
+// Delete file
+await r2.deleteObject(ctx, storageId)
+```
+
+## AI & Data Services
+
+### Google Gemini 2.5 Flash
+
+**Fast, cost-effective AI model** for query generation and analysis.
+
+```typescript
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+
+const google_gemini = createGoogleGenerativeAI({
+  apiKey: process.env.GEMINI_API_KEY,
+})
+
+export const model = google_gemini.languageModel('gemini-2.5-flash')
+```
+
+**Used For:**
+- Natural language to SQL conversion
+- Data analysis and insights
+- Chart recommendations
+- Statistical interpretation
+
+**Prompting Strategy:**
+
+```typescript
+const contextualPrompt = `
+TABLE CONTEXT:
+- Table Name: ${tableName}
+- Columns: ${columnInfo}
+- Sample data: ${sampleRows}
+
+USER REQUEST:
+${prompt}
+
+Please write DuckDB SQL queries for the table.
+`
+```
+
+### Convex Agent (0.2.12)
+
+**AI agent framework** with structured tool calling.
+
+```typescript
+import { Agent } from '@convex-dev/agent'
+
+const agent = new Agent(components.agent, {
+  name: 'Query Agent',
+  languageModel: model,
+  instructions: '...',
+  maxSteps: 4,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    createChart,
+    // ... more tools
+  },
+})
+```
+
+**Agent Modes:**
+
+1. **Query Mode** - Generates SQL queries
+   ```typescript
+   const response = await agent.streamObject(ctx, thread, {
+     prompt: contextualPrompt,
+     schema: z.object({
+       commands: z.array(z.string()),
+       description: z.string(),
+     }),
+   })
+   ```
+
+2. **Analysis Mode** - Uses tools to explore data
+   ```typescript
+   const response = await agent.streamText(ctx, thread, {
+     prompt: contextualPrompt,
+   })
+   ```
+
+**Available Tools:**
+
+<CardGroup cols={2}>
+  <Card title="queryDuckDB" icon="database">
+    Execute SQL queries on DuckDB
+  </Card>
+  <Card title="getTableSchema" icon="table-columns">
+    Get column names and types
+  </Card>
+  <Card title="getSampleRows" icon="table-rows">
+    Fetch sample data rows
+  </Card>
+  <Card title="createChart" icon="chart-line">
+    Generate visualizations
+  </Card>
+  <Card title="generateInsights" icon="lightbulb">
+    Analyze data patterns
+  </Card>
+  <Card title="firecrawlSearch" icon="magnifying-glass">
+    Search the web
+  </Card>
+  <Card title="scrapeWebPage" icon="spider-web">
+    Extract web content
+  </Card>
+  <Card title="analyzeDataQuality" icon="check-circle">
+    Assess data quality
+  </Card>
+</CardGroup>
+
+### Firecrawl (4.5.0)
+
+**Web scraping and data extraction** service.
+
+```typescript
+import Firecrawl from '@mendable/firecrawl-js'
+
+const firecrawl = new Firecrawl({ apiKey })
+
+// Search the web
+const searchResult = await firecrawl.search(query, { limit: 10 })
+
+// Scrape a page
+const scrapeResult = await firecrawl.scrape(url, {
+  formats: ['markdown', 'html'],
+})
+
+// Extract structured data
+const extractResult = await firecrawl.extract({
+  urls: [url],
+  prompt: 'Extract product information',
+  schema: productSchema,
+})
+```
+
+## Development Tools
+
+### TypeScript 5.9.2
+
+**Type-safe development** across the entire stack.
+
+### Vite 7.1.5
+
+**Fast build tool** with HMR and optimized bundling.
+
+### Prettier 3.6.2
+
+**Code formatting** for consistent style.
+
+### ESLint
+
+**Code linting** with TanStack and Convex plugins.
+
+## Version Summary
+
+| Technology | Version | Purpose |
+|------------|---------|----------|
+| React | 19.1.1 | UI framework |
+| TanStack Start | 1.132.2 | Full-stack framework |
+| Mantine UI | 8.3.6 | Component library |
+| Convex | 1.28.0 | Backend & database |
+| DuckDB | 1.4.1 | Analytics engine |
+| Gemini AI | 2.5 Flash | AI model |
+| TanStack Query | 5.89.0 | Data fetching |
+| TanStack Table | 8.21.3 | Data grid |
+| Recharts | 3.4.1 | Charts |
+| TypeScript | 5.9.2 | Type safety |
+| Vite | 7.1.5 | Build tool |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="building" href="/architecture/overview">
+    Understand the overall system design
+  </Card>
+  <Card title="Data Flow" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Learn how data moves through the system
+  </Card>
+</CardGroup>

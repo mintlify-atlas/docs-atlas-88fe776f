@@ -1,0 +1,508 @@
+---
+title: 'Insights Tool'
+description: 'Generate AI-powered insights from data analysis and quality checks'
+---
+
+## Overview
+
+The Insights Tool enables AI agents to perform data analysis and generate actionable insights. It includes capabilities for data quality assessment, table comparisons, and database exploration.
+
+## Core Functions
+
+### generateInsights
+
+Generate AI-powered insights from data analysis.
+
+<ParamField path="tableName" type="string" required>
+  The name of the table to analyze for insights.
+</ParamField>
+
+<ParamField path="query" type="string">
+  Optional SQL query to filter the data before analysis. If not provided, analyzes the entire table.
+</ParamField>
+
+<ParamField path="forceRefresh" type="boolean" default={false}>
+  Force refresh insights even if cached results exist.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  message?: string
+  tableName: string
+  rowCount: number
+  columnCount: number
+  note?: string
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const insights = await generateInsights.handler(ctx, {
+  tableName: 'customers',
+  query: 'SELECT * FROM customers WHERE signup_date > \'2024-01-01\''
+})
+
+if (insights.success) {
+  console.log(`Analyzed ${insights.rowCount} rows, ${insights.columnCount} columns`)
+  console.log(insights.message)
+}
+```
+
+### analyzeDataQuality
+
+Analyze data quality of a table, checking for null values, duplicates, and other issues.
+
+<ParamField path="tableName" type="string" required>
+  The name of the table to analyze.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  tableName: string
+  rowCount: number
+  columnCount: number
+  qualityScore: number  // 0-100 score
+  issueCount: number
+  issues: Array<{
+    column: string
+    issue: string
+    severity: 'low' | 'medium' | 'high'
+    details: string
+  }>
+  summary: string
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const quality = await analyzeDataQuality.handler(ctx, {
+  tableName: 'orders'
+})
+
+if (quality.success) {
+  console.log(`Quality Score: ${quality.qualityScore}/100`)
+  console.log(`Found ${quality.issueCount} issues:`)
+  
+  quality.issues.forEach(issue => {
+    console.log(`  [${issue.severity}] ${issue.column}: ${issue.issue}`)
+    console.log(`    ${issue.details}`)
+  })
+}
+```
+
+### compareTables
+
+Compare two tables to find differences, similarities, or relationships.
+
+<ParamField path="table1" type="string" required>
+  Name of the first table.
+</ParamField>
+
+<ParamField path="table2" type="string" required>
+  Name of the second table.
+</ParamField>
+
+<ParamField path="compareColumns" type="boolean" default={true}>
+  Whether to compare column schemas.
+</ParamField>
+
+<ParamField path="compareRowCounts" type="boolean" default={true}>
+  Whether to compare row counts.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  table1: {
+    name: string
+    rowCount: number
+    columnCount: number
+  }
+  table2: {
+    name: string
+    rowCount: number
+    columnCount: number
+  }
+  comparison: {
+    rowCountDifference: number
+    commonColumns: number
+    onlyInTable1: number
+    onlyInTable2: number
+  }
+  details: {
+    commonColumns: Array<{ name: string; type: string }>
+    onlyInTable1: Array<{ name: string; type: string }>
+    onlyInTable2: Array<{ name: string; type: string }>
+  }
+  summary: string
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const comparison = await compareTables.handler(ctx, {
+  table1: 'products_2023',
+  table2: 'products_2024'
+})
+
+if (comparison.success) {
+  console.log(comparison.summary)
+  console.log('Common columns:', comparison.details.commonColumns.length)
+  console.log('Only in 2023:', comparison.details.onlyInTable1.length)
+  console.log('Only in 2024:', comparison.details.onlyInTable2.length)
+}
+```
+
+### getTableList
+
+Get a list of all available tables in the database.
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  tables: string[]
+  count: number
+  message: string
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const tableList = await getTableList.handler(ctx)
+
+if (tableList.success) {
+  console.log(`Found ${tableList.count} tables:`)
+  tableList.tables.forEach(table => console.log(`  - ${table}`))
+}
+```
+
+## Data Quality Analysis Details
+
+The `analyzeDataQuality` function performs comprehensive checks:
+
+### Null Value Detection
+
+From `table_agent.ts:315-345`:
+
+```typescript
+// Check for nulls in each column
+const nullCheckQuery = `
+  SELECT COUNT(*) as total, COUNT(${colName}) as non_null
+  FROM ${tableName}
+`
+const nullPercent = ((total - nonNull) / total) * 100
+
+if (nullPercent > 50) {
+  issues.push({
+    column: colName,
+    issue: 'High null percentage',
+    severity: 'high',
+    details: `${nullPercent.toFixed(1)}% of values are null`
+  })
+} else if (nullPercent > 20) {
+  issues.push({
+    column: colName,
+    issue: 'Moderate null percentage',
+    severity: 'medium',
+    details: `${nullPercent.toFixed(1)}% of values are null`
+  })
+}
+```
+
+### Duplicate Detection
+
+For columns that appear to be identifiers:
+
+```typescript
+if (colName.toLowerCase().includes('id') || 
+    colName.toLowerCase().includes('key')) {
+  const duplicateQuery = `
+    SELECT ${colName}, COUNT(*) as cnt
+    FROM ${tableName}
+    GROUP BY ${colName}
+    HAVING COUNT(*) > 1
+    LIMIT 10
+  `
+  
+  if (dupResult.rows.length > 0) {
+    issues.push({
+      column: colName,
+      issue: 'Duplicate values found',
+      severity: 'high',
+      details: `Found ${dupResult.rows.length} duplicate values`
+    })
+  }
+}
+```
+
+### Empty String Detection
+
+For text columns:
+
+```typescript
+if (colType.includes('varchar') || colType.includes('text')) {
+  const emptyQuery = `
+    SELECT COUNT(*) as empty_count
+    FROM ${tableName}
+    WHERE ${colName} = '' OR ${colName} IS NULL
+  `
+  
+  if (emptyCount > 0) {
+    issues.push({
+      column: colName,
+      issue: 'Empty string values',
+      severity: 'low',
+      details: `Found ${emptyCount} empty or null string values`
+    })
+  }
+}
+```
+
+### Quality Score Calculation
+
+From `table_agent.ts:416-424`:
+
+```typescript
+qualityScore = issues.length === 0 ? 100 :
+  Math.max(0,
+    100 - 
+    issues.length * 10 - 
+    issues.filter(i => i.severity === 'high').length * 20
+  )
+```
+
+**Scoring:**
+- Start at 100
+- Deduct 10 points per issue
+- Deduct additional 20 points per high-severity issue
+- Minimum score is 0
+
+## Table Comparison Implementation
+
+The `compareTables` tool performs parallel queries for efficiency (agent_tools.ts:676-708):
+
+```typescript
+// Get schemas in parallel
+const [schema1Result, schema2Result] = await Promise.all([
+  ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+    query: `DESCRIBE ${args.table1}`
+  }),
+  ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+    query: `DESCRIBE ${args.table2}`
+  }),
+])
+
+// Get row counts in parallel
+const [count1Result, count2Result] = await Promise.all([
+  ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+    query: `SELECT COUNT(*) as count FROM ${args.table1}`
+  }),
+  ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+    query: `SELECT COUNT(*) as count FROM ${args.table2}`
+  }),
+])
+```
+
+### Column Comparison Logic
+
+```typescript
+// Find common columns (same name and type)
+const commonColumns = columns1.filter((col1) =>
+  columns2.some((col2) => 
+    col2.name === col1.name && col2.type === col1.type
+  )
+)
+
+// Find columns only in table1
+const onlyInTable1 = columns1.filter((col1) =>
+  !columns2.some((col2) => col2.name === col1.name)
+)
+
+// Find columns only in table2
+const onlyInTable2 = columns2.filter((col2) =>
+  !columns1.some((col1) => col1.name === col2.name)
+)
+```
+
+## Usage in Agent Workflows
+
+Both Query and Analysis agents have access to insights tools:
+
+```typescript
+const analysis_agent = new Agent(components.agent, {
+  name: 'analysis_agent',
+  languageModel: model,
+  instructions: `
+You are an assistant that explores and analyzes databases.
+
+Use the available tools to:
+- Assess data quality, compare tables, and list tables
+- Query and inspect DuckDB tables
+- Visualize or analyze data
+`,
+  tools: {
+    analyzeDataQuality,
+    compareTables,
+    getTableList,
+    generateInsights,
+    // ... other tools
+  },
+})
+```
+
+### Example Agent Workflow
+
+User: "Check the quality of my customer data"
+
+1. Agent calls `getTableList()` to find customer-related tables
+2. Agent calls `analyzeDataQuality('customers')`
+3. Agent receives quality score and issues
+4. Agent summarizes findings:
+   - "Your customer table has a quality score of 75/100"
+   - "Found 3 issues: 25% null values in 'email' column, duplicate IDs detected"
+5. Agent may call `generateInsights` for additional analysis
+
+## Implementation Details
+
+### Tool Definition
+
+```typescript
+export const analyzeDataQuality = createTool({
+  description:
+    'Analyze data quality of a table. Checks for null values, duplicates, empty strings, and other data quality issues.',
+  args: z.object({
+    tableName: z.string().describe('The name of the table to analyze'),
+  }),
+  handler: async (ctx, args) => {
+    try {
+      const result = await ctx.runAction(
+        api.table_agent.analyzeDataQualityAction,
+        { tableName: args.tableName }
+      )
+      return truncateToolResponse(result)
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  },
+})
+```
+
+## Response Truncation
+
+Insights tool responses are truncated for efficiency:
+
+- **Issues array**: Maximum 10 items
+- **String fields**: Maximum 2,000 characters
+- **Truncation flag**: `_truncatedIssues` set to true if truncated
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="Table not found">
+    ```json
+    {
+      "success": false,
+      "error": "Table 'unknown_table' not found or has no columns"
+    }
+    ```
+    **Solution**: Use `getTableList` to verify table names.
+  </Accordion>
+
+  <Accordion title="No data to analyze">
+    ```json
+    {
+      "success": false,
+      "error": "No data found to analyze"
+    }
+    ```
+    **Solution**: Verify table contains data before analysis.
+  </Accordion>
+
+  <Accordion title="Query execution failed">
+    ```json
+    {
+      "success": false,
+      "error": "Invalid column name in quality check"
+    }
+    ```
+    **Solution**: Check table schema integrity.
+  </Accordion>
+</AccordionGroup>
+
+## Issue Severity Levels
+
+<CardGroup cols={3}>
+  <Card title="High Severity" icon="circle-exclamation" color="#ef4444">
+    Critical issues requiring immediate attention:
+    - High null percentage (>50%)
+    - Duplicate IDs/keys
+    - Data type mismatches
+  </Card>
+  <Card title="Medium Severity" icon="triangle-exclamation" color="#f59e0b">
+    Issues that should be addressed:
+    - Moderate null percentage (20-50%)
+    - Inconsistent formatting
+    - Missing expected columns
+  </Card>
+  <Card title="Low Severity" icon="circle-info" color="#3b82f6">
+    Minor issues for awareness:
+    - Empty strings
+    - Trailing/leading whitespace
+    - Unused columns
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Run quality checks regularly">
+    Schedule periodic data quality assessments to catch issues early.
+  </Step>
+  
+  <Step title="Compare before and after transformations">
+    Use `compareTables` to validate data migrations and transformations.
+  </Step>
+  
+  <Step title="Address high-severity issues first">
+    Focus on fixing issues marked as "high" severity before others.
+  </Step>
+  
+  <Step title="Use insights for optimization">
+    Let insights guide query optimization and data modeling decisions.
+  </Step>
+</Steps>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Query Tool" icon="database" href="/api/agents/query-tool">
+    Execute queries for detailed data inspection
+  </Card>
+  <Card title="Chart Tool" icon="chart-line" href="/api/agents/chart-tool">
+    Visualize quality metrics and trends
+  </Card>
+  <Card title="Query Editor" icon="code" href="/features/query-editor">
+    Manually fix data quality issues
+  </Card>
+</CardGroup>

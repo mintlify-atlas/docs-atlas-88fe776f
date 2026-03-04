@@ -1,0 +1,514 @@
+---
+title: 'Using AI Agents'
+description: 'Leverage AI-powered agents to analyze data and generate insights with natural language'
+icon: 'sparkles'
+---
+
+Meridian's AI agents help you explore and analyze your data using natural language. Instead of writing SQL manually, describe what you want to know and let the AI do the heavy lifting.
+
+## Agent Types
+
+Meridian provides two specialized agents, each optimized for different tasks:
+
+<CardGroup cols={2}>
+  <Card title="Query Agent" icon="terminal">
+    Generates DuckDB SQL queries from natural language. Perfect for data transformation and complex queries.
+  </Card>
+  <Card title="Analysis Agent" icon="chart-mixed">
+    Explores your data using multiple tools. Provides insights, comparisons, and quality assessments.
+  </Card>
+</CardGroup>
+
+## Switching Between Agents
+
+Use the segmented control at the top of the agent panel to switch modes:
+
+```typescript
+<SegmentedControl
+  value={mode}
+  onChange={(value) => onModeChange(value as 'query' | 'analysis')}
+  data={[
+    { value: 'query', label: 'Query Agent' },
+    { value: 'analysis', label: 'Analysis Agent' }
+  ]}
+/>
+```
+
+## Query Agent: Natural Language to SQL
+
+The Query Agent converts your requests into executable SQL commands.
+
+<Steps>
+  <Step title="Select Query Mode">
+    Ensure "Query Agent" is selected in the agent panel.
+  </Step>
+
+  <Step title="Describe Your Query">
+    Type a natural language description of what you want to do:
+
+    **Example requests:**
+    - "Show me the top 10 customers by revenue"
+    - "Calculate average order value by month"
+    - "Update all products in the Electronics category to increase price by 10%"
+    - "Find orders where the amount is greater than $1000"
+  </Step>
+
+  <Step title="AI Generates SQL">
+    The agent analyzes your request and generates one or more SQL commands:
+
+    ```typescript
+    // Agent streams a structured response
+    const response = await agent.streamObject(ctx, threadReference, {
+      prompt: contextualPrompt,
+      schema: z.object({
+        commands: z.array(z.string()).min(1).max(10),
+        description: z.string()
+      })
+    })
+    ```
+
+    You'll see:
+    - A description of what the query does
+    - The generated SQL commands
+    - Number of commands in the queue
+  </Step>
+
+  <Step title="Review and Execute">
+    The generated SQL appears in the query editor. You can:
+    - Review the SQL before execution
+    - Modify it if needed
+    - Execute it directly from the agent response
+  </Step>
+</Steps>
+
+### Query Agent Examples
+
+<Tabs>
+  <Tab title="Filtering">
+    **Request:** "Show me all sales from the West region in 2024"
+
+    **Generated SQL:**
+    ```sql
+    SELECT * FROM sales 
+    WHERE region = 'West' 
+      AND order_date >= '2024-01-01' 
+      AND order_date < '2025-01-01';
+    ```
+
+    **Description:** Filters sales records for West region during 2024.
+  </Tab>
+
+  <Tab title="Aggregation">
+    **Request:** "Calculate total revenue and average order size by product category"
+
+    **Generated SQL:**
+    ```sql
+    SELECT 
+      category,
+      SUM(revenue) as total_revenue,
+      AVG(order_amount) as avg_order_size,
+      COUNT(*) as order_count
+    FROM sales
+    GROUP BY category
+    ORDER BY total_revenue DESC;
+    ```
+
+    **Description:** Aggregates sales metrics grouped by product category.
+  </Tab>
+
+  <Tab title="Updates">
+    **Request:** "Add a 15% discount to all premium customers"
+
+    **Generated SQL:**
+    ```sql
+    UPDATE customers 
+    SET discount_rate = 0.15 
+    WHERE customer_tier = 'Premium';
+    ```
+
+    **Description:** Updates discount rate for premium tier customers.
+  </Tab>
+
+  <Tab title="Complex">
+    **Request:** "Show top performing sales reps with their quarterly targets vs actual"
+
+    **Generated SQL:**
+    ```sql
+    SELECT 
+      rep_name,
+      SUM(CASE WHEN QUARTER(sale_date) = 1 THEN amount ELSE 0 END) as q1_actual,
+      SUM(CASE WHEN QUARTER(sale_date) = 2 THEN amount ELSE 0 END) as q2_actual,
+      MAX(quarterly_target) as target,
+      SUM(amount) as total_sales
+    FROM sales_reps_data
+    GROUP BY rep_name
+    HAVING total_sales > 0
+    ORDER BY total_sales DESC
+    LIMIT 10;
+    ```
+
+    **Description:** Analyzes sales rep performance with quarterly breakdown.
+  </Tab>
+</Tabs>
+
+## Analysis Agent: AI-Powered Exploration
+
+The Analysis Agent uses multiple tools to explore your data and provide insights.
+
+<Steps>
+  <Step title="Select Analysis Mode">
+    Switch to "Analysis Agent" in the agent panel.
+  </Step>
+
+  <Step title="Ask a Question">
+    Describe what you want to understand about your data:
+
+    **Example questions:**
+    - "What patterns do you see in this sales data?"
+    - "Compare Q1 and Q2 revenue performance"
+    - "Check data quality issues in this dataset"
+    - "Find correlations between product price and sales volume"
+  </Step>
+
+  <Step title="Agent Uses Tools">
+    The agent automatically selects and executes relevant tools:
+
+    ```typescript
+    // Available tools for the Analysis Agent
+    tools: {
+      queryDuckDB,           // Run SQL queries
+      getTableSchema,        // Inspect table structure
+      getSampleRows,         // View sample data
+      createChart,           // Generate visualizations
+      generateInsights,      // AI-powered insights
+      firecrawlSearch,       // Web search
+      scrapeWebPage,         // Extract web data
+      extractWebPage,        // Structured extraction
+      analyzeDataQuality,    // Quality assessment
+      compareTables,         // Compare datasets
+      getTableList           // List available tables
+    }
+    ```
+
+    You see real-time updates as each tool runs.
+  </Step>
+
+  <Step title="Streaming Results">
+    The agent streams its analysis back to you:
+    - Tool usage appears with glowing indicators while running
+    - Completed tools show checkmarks
+    - Final analysis appears as markdown text
+  </Step>
+</Steps>
+
+### Tool Execution Visualization
+
+When the Analysis Agent runs tools, you see live updates:
+
+```typescript
+// Running tool - shows with animated gradient
+<Box style={{
+  background: 'linear-gradient(135deg, rgba(55, 114, 255, 0.1) 0%, rgba(138, 43, 226, 0.1) 100%)',
+  border: '2px solid rgba(55, 114, 255, 0.3)',
+  animation: 'toolPulse 2s ease-in-out infinite'
+}}>
+  <Text>Running: queryDuckDB</Text>
+  <Text>Args: {{ query: "SELECT * FROM sales LIMIT 10" }}</Text>
+</Box>
+
+// Completed tools - shown with reduced opacity
+<Box style={{ opacity: 0.7 }}>
+  <Text>✓ getTableSchema</Text>
+</Box>
+```
+
+### Analysis Agent Capabilities
+
+<AccordionGroup>
+  <Accordion title="Data Quality Analysis">
+    The agent can assess your data quality automatically:
+
+    ```typescript
+    // Tool: analyzeDataQuality
+    {
+      tableName: "customers",
+      rowCount: 1000,
+      columnCount: 8,
+      issues: [
+        {
+          column: "email",
+          issue: "High null percentage",
+          severity: "high",
+          details: "35.5% of values are null"
+        },
+        {
+          column: "customer_id",
+          issue: "Duplicate values found",
+          severity: "high",
+          details: "Found 12 duplicate values"
+        }
+      ],
+      qualityScore: 75
+    }
+    ```
+
+    **Common issues detected:**
+    - High percentage of null values
+    - Duplicate IDs or keys
+    - Empty string values in text columns
+    - Type inconsistencies
+  </Accordion>
+
+  <Accordion title="Schema Inspection">
+    Automatically examine table structure:
+
+    ```sql
+    -- Tool: getTableSchema
+    DESCRIBE table_name;
+    ```
+
+    Returns column names, types, and metadata.
+  </Accordion>
+
+  <Accordion title="Sample Data Retrieval">
+    Fetch representative data samples:
+
+    ```sql
+    -- Tool: getSampleRows
+    SELECT * FROM table_name LIMIT 10;
+    ```
+
+    Helps the AI understand your data structure.
+  </Accordion>
+
+  <Accordion title="Web Search Integration">
+    The agent can search the web for context:
+
+    ```typescript
+    // Tool: firecrawlSearch
+    const result = await firecrawl.search(query, {
+      limit: 10
+    })
+    ```
+
+    Useful for enriching analysis with external data.
+  </Accordion>
+
+  <Accordion title="Table Comparison">
+    Compare two datasets:
+
+    ```typescript
+    // Tool: compareTables
+    {
+      table1: "sales_2023",
+      table2: "sales_2024",
+      metrics: ["revenue", "order_count", "avg_order_value"]
+    }
+    ```
+
+    Identifies differences and trends.
+  </Accordion>
+</AccordionGroup>
+
+## Conversation Threads
+
+Both agents maintain conversation context through threads, enabling multi-turn interactions.
+
+### Thread Management
+
+```typescript
+// Threads are automatically created and tracked
+agentThreads: defineTable({
+  userId: v.string(),
+  tableName: v.string(),
+  agentThreadId: v.string(),
+  agentName: v.string(),
+  title: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  lastMessageAt: v.number(),
+  lastMessageSummary: v.optional(v.string()),
+  lastMode: v.optional(v.union(
+    v.literal('query'), 
+    v.literal('analysis')
+  ))
+})
+```
+
+### Using Threads
+
+<Steps>
+  <Step title="Automatic Thread Creation">
+    When you start a new conversation, a thread is created automatically. The title is generated from your first message.
+  </Step>
+
+  <Step title="Select Existing Threads">
+    Use the thread selector to switch between previous conversations:
+
+    ```typescript
+    <Select
+      placeholder="Select a conversation"
+      data={threads.map(thread => ({
+        value: thread.agentThreadId,
+        label: thread.title || 'Untitled conversation'
+      }))}
+      onChange={onThreadSelect}
+    />
+    ```
+  </Step>
+
+  <Step title="Create New Threads">
+    Click the + button to start a fresh conversation while keeping old threads accessible.
+  </Step>
+
+  <Step title="Context Preservation">
+    Each thread maintains full context:
+    - Previous messages
+    - Tool executions
+    - Generated queries
+    - Analysis results
+  </Step>
+</Steps>
+
+## Streaming Responses
+
+Both agents stream responses in real-time for immediate feedback.
+
+### Query Agent Streaming
+
+```typescript
+// Streams structured object with partial updates
+for await (const partialObject of objstream.partialObjectStream) {
+  if (partialObject) {
+    // Update UI with partial commands and description
+    finalObject.commands = partialObject.commands || []
+    finalObject.description = partialObject.description || ''
+    
+    // Live update in database for real-time collaboration
+    await ctx.runMutation(api.agent_utils.updateAgentMessageRecord, {
+      content: finalObject.description,
+      commands: finalObject.commands
+    })
+  }
+}
+```
+
+### Analysis Agent Streaming
+
+```typescript
+// Streams text and tool executions
+for await (const part of stream.fullStream) {
+  if (part.type === 'text-delta') {
+    assistantText += part.text
+    // Update UI with accumulated text
+  }
+  
+  if (part.type === 'tool-call') {
+    // Show tool starting
+    toolSteps.push({
+      tool: part.toolName,
+      args: part.input,
+      finished: false
+    })
+  }
+  
+  if (part.type === 'tool-result') {
+    // Update tool with result
+    toolSteps[index].result = part.output
+    toolSteps[index].finished = true
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Be Specific in Requests">
+    More specific requests yield better results:
+
+    ❌ "Show me sales data"
+    ✅ "Show me total sales by region for Q1 2024"
+
+    ❌ "Update prices"
+    ✅ "Increase all Electronics category prices by 10%"
+  </Accordion>
+
+  <Accordion title="Use Natural Language">
+    Write requests as you would ask a colleague:
+
+    ✅ "What are the top 5 products by revenue?"
+    ✅ "Find customers who haven't ordered in 90 days"
+    ✅ "Calculate the average order value for each customer segment"
+  </Accordion>
+
+  <Accordion title="Review Generated SQL">
+    Always review SQL before executing, especially for:
+    - UPDATE statements
+    - DELETE operations
+    - Complex joins
+    - Production data
+  </Accordion>
+
+  <Accordion title="Use Threads for Complex Analysis">
+    For multi-step analysis:
+    1. Start a thread
+    2. Ask exploratory questions
+    3. Build on previous answers
+    4. Refine your understanding
+    5. Keep the thread for future reference
+  </Accordion>
+
+  <Accordion title="Choose the Right Agent">
+    - **Query Agent**: When you know you need SQL or data transformation
+    - **Analysis Agent**: When exploring, investigating, or need insights
+
+    You can switch between them in the same thread.
+  </Accordion>
+</AccordionGroup>
+
+## Agent Architecture
+
+Meridian's agents are powered by Google's Gemini model with Convex Agent Component:
+
+```typescript
+// Agent configuration
+const query_agent = new Agent(components.agent, {
+  name: 'Query Agent',
+  languageModel: google_gemini.languageModel('gemini-2.5-flash'),
+  instructions: `
+    You are an assistant that writes DuckDB SQL queries.
+    Respond with valid DuckDB SQL commands and descriptions.
+  `,
+  maxSteps: 4,
+  tools: { queryDuckDB, getTableSchema, getSampleRows, ... }
+})
+```
+
+### Context Management
+
+To stay within API limits, Meridian trims prompts to ~8000 characters:
+
+```typescript
+const GEMINI_PROMPT_LIMIT = 8000
+
+function trimToLimit(str: string, limit = GEMINI_PROMPT_LIMIT) {
+  if (str.length <= limit) return str
+  
+  // Keep start and end, lose middle
+  const keep = Math.floor((limit - 200) / 2)
+  return str.slice(0, keep) + 
+         '\n\n... [TRUNCATED FOR LENGTH] ...\n\n' + 
+         str.slice(str.length - keep - 200)
+}
+```
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Create Charts" icon="chart-line" href="/guides/creating-charts">
+    Visualize agent analysis results with interactive charts
+  </Card>
+  <Card title="Collaboration Tips" icon="users" href="/guides/collaboration-tips">
+    Work with your team in real-time on data analysis
+  </Card>
+</CardGroup>

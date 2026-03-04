@@ -1,0 +1,430 @@
+---
+title: 'Chart Tool'
+description: 'Create interactive visualizations from query results'
+---
+
+## Overview
+
+The Chart Tool enables AI agents to create interactive visualizations from database queries. It automatically analyzes data structure, determines the best chart type, and configures axes for optimal visualization.
+
+## createChart Function
+
+Create a chart visualization from SQL query results.
+
+<ParamField path="query" type="string" required>
+  The SQL query to execute to get data for the chart. Must return data suitable for visualization.
+</ParamField>
+
+<ParamField path="chartType" type="enum" default="auto">
+  The type of chart to create. If not specified, determined automatically based on data structure.
+  
+  **Options**: `bar`, `line`, `area`, `pie`, `scatter`, `donut`
+</ParamField>
+
+<ParamField path="title" type="string">
+  Title for the chart. If not provided, auto-generated from axis keys.
+</ParamField>
+
+<ParamField path="xAxisKey" type="string">
+  Column name to use for X-axis. Auto-detected if not specified.
+</ParamField>
+
+<ParamField path="yAxisKey" type="string">
+  Column name to use for Y-axis. Auto-detected if not specified.
+</ParamField>
+
+## Response Structure
+
+```typescript
+{
+  success: boolean
+  chart?: {
+    type: 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'donut'
+    title: string
+    data: Array<Record<string, any>>
+    dataKey: string
+    xAxisKey: string
+    yAxisKey: string
+    series?: Array<{ name: string; color: string }>
+    columns: Array<{ name: string; type: string }>
+    query: string  // Original query for re-execution
+  }
+  error?: string
+}
+```
+
+## Automatic Chart Type Selection
+
+The tool analyzes query results to determine the optimal chart type:
+
+```typescript
+// Single numeric + string columns → Bar chart
+SELECT category, SUM(sales) as total_sales
+FROM sales
+GROUP BY category
+// Result: bar chart
+
+// Multiple numeric columns → Line chart
+SELECT month, revenue, expenses, profit
+FROM monthly_data
+// Result: line chart with multiple series
+
+// Two columns (categorical + numeric) → Pie chart
+SELECT status, COUNT(*) as count
+FROM orders
+GROUP BY status
+// Result: pie chart
+```
+
+### Selection Logic
+
+From `agent_tools.ts:309-324`:
+
+```typescript
+if (!chartType) {
+  if (numericColumns.length === 0) {
+    return { success: false, error: 'No numeric columns found for charting' }
+  } else if (numericColumns.length === 1 && stringColumns.length >= 1) {
+    chartType = 'bar'  // Single metric across categories
+  } else if (numericColumns.length >= 2) {
+    chartType = 'line'  // Multiple metrics over time/dimension
+  } else {
+    chartType = 'bar'   // Default fallback
+  }
+}
+```
+
+## Example Usage
+
+### Basic Bar Chart
+
+```typescript
+const result = await createChart.handler(ctx, {
+  query: `
+    SELECT category, COUNT(*) as product_count
+    FROM products
+    GROUP BY category
+    ORDER BY product_count DESC
+  `,
+  title: 'Products by Category'
+})
+
+if (result.success) {
+  console.log('Chart created:', result.chart.type)
+  console.log('Data points:', result.chart.data.length)
+}
+```
+
+**Result:**
+```json
+{
+  "success": true,
+  "chart": {
+    "type": "bar",
+    "title": "Products by Category",
+    "data": [
+      { "category": "Electronics", "product_count": 45 },
+      { "category": "Clothing", "product_count": 32 },
+      { "category": "Food", "product_count": 28 }
+    ],
+    "xAxisKey": "category",
+    "yAxisKey": "product_count",
+    "dataKey": "category"
+  }
+}
+```
+
+### Multi-Series Line Chart
+
+```typescript
+const result = await createChart.handler(ctx, {
+  query: `
+    SELECT
+      DATE_TRUNC('month', order_date) as month,
+      SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END) as completed,
+      SUM(CASE WHEN status = 'cancelled' THEN total ELSE 0 END) as cancelled
+    FROM orders
+    GROUP BY month
+    ORDER BY month
+  `,
+  chartType: 'line',
+  title: 'Order Trends'
+})
+```
+
+**Result includes series configuration:**
+```json
+{
+  "success": true,
+  "chart": {
+    "type": "line",
+    "title": "Order Trends",
+    "series": [
+      { "name": "completed", "color": "blue" },
+      { "name": "cancelled", "color": "green" }
+    ],
+    "xAxisKey": "month",
+    "yAxisKey": "completed"
+  }
+}
+```
+
+### Explicit Axis Configuration
+
+```typescript
+const result = await createChart.handler(ctx, {
+  query: 'SELECT price, quantity FROM products',
+  chartType: 'scatter',
+  xAxisKey: 'price',
+  yAxisKey: 'quantity',
+  title: 'Price vs Quantity Distribution'
+})
+```
+
+## Data Type Analysis
+
+The tool identifies column types to determine chart compatibility:
+
+### Numeric Columns (agent_tools.ts:285-296)
+
+```typescript
+const numericColumns = columns.filter((col) => {
+  const type = col.type.toLowerCase()
+  return (
+    type.includes('int') ||
+    type.includes('float') ||
+    type.includes('double') ||
+    type.includes('decimal') ||
+    type.includes('numeric') ||
+    type.includes('real')
+  )
+})
+```
+
+### String Columns (agent_tools.ts:298-307)
+
+```typescript
+const stringColumns = columns.filter((col) => {
+  const type = col.type.toLowerCase()
+  return (
+    type.includes('varchar') ||
+    type.includes('text') ||
+    type.includes('string') ||
+    type.includes('char')
+  )
+})
+```
+
+## Chart Configuration
+
+### Axis Selection
+
+Axes are automatically determined if not specified (agent_tools.ts:327-342):
+
+```typescript
+// X-axis: Prefer string columns, fallback to numeric
+if (!xAxisKey && stringColumns.length > 0) {
+  xAxisKey = stringColumns[0].name
+} else if (!xAxisKey && numericColumns.length > 0) {
+  xAxisKey = numericColumns[0].name
+}
+
+// Y-axis: Use first numeric column that's not X-axis
+if (!yAxisKey && numericColumns.length > 0) {
+  const yCol = numericColumns.find((col) => col.name !== xAxisKey) ||
+               numericColumns[0]
+  yAxisKey = yCol.name
+}
+```
+
+### Series Colors
+
+Multi-series charts use predefined color palette (agent_tools.ts:355-374):
+
+```typescript
+const colors = [
+  'blue', 'green', 'red', 'yellow',
+  'purple', 'orange', 'cyan', 'pink'
+]
+
+numericColumns.forEach((col, idx) => {
+  if (col.name !== xAxisKey) {
+    series.push({
+      name: col.name,
+      color: colors[idx % colors.length]
+    })
+  }
+})
+```
+
+## Usage in Agent Workflows
+
+From `table_agent.ts:466-494`, the Analysis Agent uses charts for visualization:
+
+```typescript
+const analysis_agent = new Agent(components.agent, {
+  name: 'analysis_agent',
+  languageModel: model,
+  instructions: `
+You are an assistant that explores and analyzes databases.
+
+Use the available tools to:
+- Query and inspect DuckDB tables
+- Visualize or analyze data
+- Search or extract info from the web
+
+Pick the right tools as needed.
+`,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    getSampleRows,
+    createChart,  // ← Chart tool included
+    // ...
+  },
+})
+```
+
+### Example Agent Interaction
+
+User: "Show me a chart of sales by region"
+
+1. Agent calls `getTableSchema('sales')` to understand structure
+2. Agent identifies `region` and `amount` columns
+3. Agent calls `createChart` with aggregation query:
+   ```sql
+   SELECT region, SUM(amount) as total_sales
+   FROM sales
+   GROUP BY region
+   ```
+4. Tool returns bar chart configuration
+5. Frontend renders chart using configuration
+
+## Implementation Details
+
+### Tool Definition
+
+```typescript
+export const createChart = createTool({
+  description:
+    'Create a chart visualization from query results. Use when user asks to visualize data, create a chart, or show data graphically.',
+  args: z.object({
+    query: z.string().describe('SQL query to get chart data'),
+    chartType: z.enum(['bar', 'line', 'area', 'pie', 'scatter', 'donut']).optional(),
+    title: z.string().optional(),
+    xAxisKey: z.string().optional(),
+    yAxisKey: z.string().optional(),
+  }),
+  handler: async (ctx, args) => {
+    // Execute query
+    const result = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: args.query,
+    })
+
+    // Analyze structure and create chart config
+    // ...
+    
+    return truncateToolResponse({ success: true, chart: chartConfig })
+  },
+})
+```
+
+### Data Truncation
+
+Chart data is truncated for token efficiency:
+
+- Maximum **10 data points** in response
+- Original data length stored in `chart._truncatedData` flag
+- Full query included for re-execution if needed
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="No data returned">
+    ```json
+    {
+      "success": false,
+      "error": "No data returned from query"
+    }
+    ```
+    **Cause**: Query returned empty result set.
+  </Accordion>
+
+  <Accordion title="No numeric columns">
+    ```json
+    {
+      "success": false,
+      "error": "No numeric columns found for charting"
+    }
+    ```
+    **Cause**: Query results contain only string/date columns.
+    
+    **Solution**: Ensure query includes aggregations or numeric values.
+  </Accordion>
+
+  <Accordion title="Query execution failed">
+    ```json
+    {
+      "success": false,
+      "error": "Table 'sales' not found"
+    }
+    ```
+    **Cause**: SQL query error.
+    
+    **Solution**: Validate query syntax and table names.
+  </Accordion>
+</AccordionGroup>
+
+## Supported Chart Types
+
+<CardGroup cols={3}>
+  <Card title="Bar Chart" icon="chart-bar">
+    Categorical data comparison
+  </Card>
+  <Card title="Line Chart" icon="chart-line">
+    Trends over time
+  </Card>
+  <Card title="Area Chart" icon="chart-area">
+    Cumulative trends
+  </Card>
+  <Card title="Pie Chart" icon="chart-pie">
+    Part-to-whole relationships
+  </Card>
+  <Card title="Scatter Plot" icon="circle-dot">
+    Correlation analysis
+  </Card>
+  <Card title="Donut Chart" icon="chart-pie">
+    Part-to-whole with center space
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Aggregate data appropriately">
+    Use `GROUP BY`, `SUM()`, `AVG()`, etc. to prepare data for visualization.
+  </Step>
+  
+  <Step title="Limit data points">
+    Keep results under 100 rows for optimal chart rendering.
+  </Step>
+  
+  <Step title="Use meaningful column names">
+    Column names become axis labels—use clear, descriptive names.
+  </Step>
+  
+  <Step title="Sort for readability">
+    Add `ORDER BY` to ensure logical data ordering in charts.
+  </Step>
+</Steps>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Query Tool" icon="database" href="/api/agents/query-tool">
+    Execute SQL queries for chart data
+  </Card>
+  <Card title="Insights Tool" icon="lightbulb" href="/api/agents/insights-tool">
+    Generate insights from visualized data
+  </Card>
+</CardGroup>

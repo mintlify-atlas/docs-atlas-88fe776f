@@ -1,0 +1,402 @@
+---
+title: 'AI Agents'
+description: 'Conversational AI assistants that help you query and analyze your data'
+icon: 'robot'
+---
+
+## Overview
+
+Meridian's AI agents provide intelligent assistance for data analysis through natural language conversations. Powered by Google Gemini 2.5 Flash, agents can understand your questions, generate SQL queries, create visualizations, and provide insights.
+
+## Agent Types
+
+Meridian offers two specialized agent modes:
+
+<CardGroup cols={2}>
+  <Card title="Query Agent" icon="database">
+    Generates and executes SQL queries based on your questions. Best for:
+    - Data exploration
+    - Filtering and aggregations
+    - Complex joins
+    - Ad-hoc analysis
+  </Card>
+  <Card title="Analysis Agent" icon="chart-line">
+    Performs deep data analysis and generates insights. Best for:
+    - Statistical analysis
+    - Trend identification
+    - Data quality checks
+    - Pattern discovery
+  </Card>
+</CardGroup>
+
+## Using the Agent
+
+### Starting a Conversation
+
+The agent editor is located in the right sidebar:
+
+```tsx
+<AgentEditor
+  input={input}
+  onInputChange={setInput}
+  onExecute={handleExecute}
+  isExecuting={isExecuting}
+  messages={messages}
+  mode="query" // or "analysis"
+  onModeChange={setMode}
+/>
+```
+
+Switch between agent modes using the segmented control:
+
+```tsx
+<SegmentedControl
+  value={mode}
+  onChange={(value) => onModeChange(value as 'query' | 'analysis')}
+  data={[
+    { value: 'query', label: 'Query Agent' },
+    { value: 'analysis', label: 'Analysis Agent' },
+  ]}
+/>
+```
+
+### Message Flow
+
+Conversations follow a structured message pair format:
+
+```tsx
+interface Message {
+  role: 'user' | 'assistant'
+  content: string
+  description?: string
+  commands?: string[]          // SQL commands generated
+  toolSteps?: ToolStep[]       // Tool usage trace
+  mode?: 'query' | 'analysis'
+  agentName?: string
+  createdAt?: number
+}
+
+interface ToolStep {
+  tool: string           // Tool name (e.g., "queryDuckDB")
+  args: any             // Tool arguments
+  result?: any          // Tool result
+  finished: boolean     // Completion status
+}
+```
+
+## Tool Usage Visualization
+
+The agent provides real-time visibility into its reasoning process:
+
+### Running Tools
+
+When a tool is executing, it's displayed with a glowing gradient:
+
+```tsx
+<Box
+  style={{
+    background: 'linear-gradient(135deg, rgba(55, 114, 255, 0.1) 0%, rgba(138, 43, 226, 0.1) 100%)',
+    border: '2px solid rgba(55, 114, 255, 0.3)',
+    animation: 'toolPulse 2s ease-in-out infinite',
+  }}
+>
+  <Group>
+    <Box style={{ animation: 'toolPulseDot 1.5s ease-in-out infinite' }} />
+    <Text>Running: {toolName}</Text>
+  </Group>
+</Box>
+```
+
+### Completed Tools
+
+Finished tools are collapsed and can be expanded to view details:
+
+```tsx
+<Collapse in={!toolStepsCollapsed}>
+  {toolSteps.map((step, idx) => (
+    <Box key={idx}>
+      <Text>{step.tool}</Text>
+      <pre>{JSON.stringify(step.args, null, 2)}</pre>
+      <pre>{JSON.stringify(step.result, null, 2)}</pre>
+    </Box>
+  ))}
+</Collapse>
+```
+
+## Agent Tools
+
+The agent has access to several tools for data operations:
+
+<AccordionGroup>
+  <Accordion title="queryDuckDB">
+    Execute SQL queries against DuckDB tables:
+    ```tsx
+    {
+      tool: 'queryDuckDB',
+      args: {
+        query: 'SELECT * FROM sales WHERE amount > 1000'
+      },
+      result: {
+        rows: [...],
+        rowCount: 42
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="createChart">
+    Generate visualizations from query results:
+    ```tsx
+    {
+      tool: 'createChart',
+      args: {
+        type: 'bar',
+        data: [...],
+        xAxisKey: 'month',
+        yAxisKey: 'revenue'
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="generateInsights">
+    Produce statistical insights from data:
+    ```tsx
+    {
+      tool: 'generateInsights',
+      args: {
+        tableName: 'sales',
+        data: [...]
+      },
+      result: {
+        insights: [/* AI-generated insights */]
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="getTableSchema">
+    Retrieve table structure information:
+    ```tsx
+    {
+      tool: 'getTableSchema',
+      args: { tableName: 'customers' },
+      result: {
+        columns: [
+          { name: 'id', type: 'INTEGER' },
+          { name: 'name', type: 'VARCHAR' }
+        ]
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+See the full list in [Agent Tools API Reference](/api/agents/overview).
+
+## Conversation Threading
+
+Manage multiple conversation threads:
+
+```tsx
+<Select
+  placeholder="Select a conversation"
+  data={threads.map(thread => ({
+    value: thread.agentThreadId,
+    label: thread.title?.slice(0, 20) + '...',
+  }))}
+  value={selectedThreadId}
+  onChange={onThreadSelect}
+/>
+
+<Button onClick={onCreateThread}>
+  <IconPlus size={16} />
+</Button>
+```
+
+Threads are stored with metadata:
+
+```tsx
+interface AgentThreadSummary {
+  agentThreadId: string
+  title?: string | null
+  lastMessageSummary?: string | null
+  lastMessageAt?: number
+  lastMode?: 'query' | 'analysis'
+  agentName?: string | null
+}
+```
+
+## Command Queue
+
+When the agent generates multiple SQL commands, they're queued and executed sequentially:
+
+```tsx
+{remainingCommands.length > 0 && (
+  <Collapse in={queueExpanded}>
+    <Stack>
+      {remainingCommands.map((cmd, idx) => (
+        <Box key={idx}>
+          <Badge>{currentCommandIndex + 1 + idx}</Badge>
+          <Text>{cmd.slice(0, 60)}...</Text>
+        </Box>
+      ))}
+    </Stack>
+  </Collapse>
+)}
+```
+
+Progress indicator shows current position:
+
+```tsx
+<Badge>
+  {currentCommandIndex + 1} / {commandQueue.length}
+</Badge>
+```
+
+## Implementation Example
+
+Here's how the agent is integrated in a table view:
+
+```tsx
+const [messages, setMessages] = useState<Message[]>([])
+const [isExecuting, setIsExecuting] = useState(false)
+const [input, setInput] = useState('')
+
+const handleExecute = async () => {
+  setIsExecuting(true)
+  
+  // Add user message
+  const userMessage: Message = {
+    role: 'user',
+    content: input,
+  }
+  setMessages(prev => [...prev, userMessage])
+  
+  try {
+    // Call agent API
+    const response = await runAgent({
+      prompt: input,
+      tableName: currentTable,
+      mode: agentMode,
+    })
+    
+    // Add assistant message with tool steps
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: response.content,
+      commands: response.commands,
+      toolSteps: response.toolSteps,
+    }
+    setMessages(prev => [...prev, assistantMessage])
+  } finally {
+    setIsExecuting(false)
+    setInput('')
+  }
+}
+```
+
+## Keyboard Shortcuts
+
+The agent editor supports keyboard shortcuts for efficiency:
+
+```tsx
+useEffect(() => {
+  const handler = (e: KeyboardEvent) => {
+    if (
+      document.activeElement === textareaRef.current &&
+      (e.ctrlKey || e.metaKey) &&
+      e.key === 'Enter'
+    ) {
+      e.preventDefault()
+      onExecute()
+    }
+  }
+  window.addEventListener('keydown', handler)
+  return () => window.removeEventListener('keydown', handler)
+}, [onExecute])
+```
+
+<Info>
+  Press **Ctrl+Enter** (or **Cmd+Enter** on Mac) to send your message
+</Info>
+
+## Advanced Tips
+
+### Effective Prompting
+
+<AccordionGroup>
+  <Accordion title="Be Specific">
+    Instead of: "Show me sales data"
+    
+    Try: "Show me the top 10 products by revenue in Q4 2024, grouped by category"
+  </Accordion>
+  
+  <Accordion title="Context Matters">
+    The agent has access to your table schema and sample data. You can reference:
+    - Column names: "Filter by the status column"
+    - Table relationships: "Join with the customers table"
+    - Data patterns: "Find outliers in the price column"
+  </Accordion>
+  
+  <Accordion title="Iterative Refinement">
+    Build on previous responses:
+    - "Now filter those results by region"
+    - "Create a chart from that query"
+    - "What insights can you find in this data?"
+  </Accordion>
+</AccordionGroup>
+
+### Performance Optimization
+
+The agent uses context trimming to stay within token limits:
+
+```tsx
+const GEMINI_PROMPT_LIMIT = 8000
+
+function trimToLimit(str: string, limit = GEMINI_PROMPT_LIMIT) {
+  if (str.length <= limit) return str
+  const keep = Math.floor((limit - 200) / 2)
+  return (
+    str.slice(0, keep) +
+    '\n\n... [TRUNCATED FOR LENGTH] ...\n\n' +
+    str.slice(str.length - keep - 200)
+  )
+}
+```
+
+This ensures fast response times while preserving important context (from `/home/daytona/workspace/source/convex/table_agent.ts:35`).
+
+## Error Handling
+
+The agent provides clear error messages:
+
+```tsx
+{error && (
+  <Alert
+    color="red"
+    title="Error"
+    onClose={onErrorClose}
+    withCloseButton
+  >
+    <Text size="xs">{error}</Text>
+  </Alert>
+)}
+```
+
+Common error scenarios:
+- Invalid SQL syntax
+- Table or column not found
+- API rate limits
+- Network connectivity issues
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Editor" icon="terminal" href="/features/query-editor">
+    Write SQL queries directly for more control
+  </Card>
+  <Card title="Chart Visualization" icon="chart-bar" href="/features/charts-visualization">
+    Create and customize data visualizations
+  </Card>
+</CardGroup>

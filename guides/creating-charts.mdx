@@ -1,0 +1,576 @@
+---
+title: 'Creating Charts'
+description: 'Build interactive visualizations that update in real-time as your data changes'
+icon: 'chart-line'
+---
+
+Meridian's chart system lets you create interactive visualizations that automatically update as your data changes. Charts are draggable, collaborative, and powered by your query results.
+
+## Chart Canvas Overview
+
+The Chart Canvas is a drag-and-drop workspace where your visualizations live:
+
+```typescript
+<ChartCanvas
+  charts={charts}
+  onRemoveChart={(id) => removeChart(id)}
+  onChartMove={(id, position) => updateChartPosition(id, position)}
+/>
+```
+
+<Info>
+  **Real-Time Updates**
+  
+  When you or a teammate runs a query that updates the data, all charts refresh automatically. This is powered by Convex's reactive subscriptions.
+</Info>
+
+## Creating Your First Chart
+
+You can create charts through the AI agent or manually configure them.
+
+### Using the Analysis Agent
+
+<Steps>
+  <Step title="Ask for a Visualization">
+    Tell the Analysis Agent what you want to visualize:
+
+    **Example requests:**
+    - "Create a bar chart showing revenue by region"
+    - "Make a line chart of sales trends over time"
+    - "Show me a pie chart of product category distribution"
+    - "Visualize the top 10 customers by purchase amount"
+  </Step>
+
+  <Step title="Agent Creates Chart">
+    The agent uses the `createChart` tool to generate a visualization:
+
+    ```typescript
+    // Tool: createChart
+    {
+      type: 'bar',
+      title: 'Revenue by Region',
+      data: queryResults,
+      xAxisKey: 'region',
+      yAxisKey: 'total_revenue',
+      dataKey: 'region'
+    }
+    ```
+  </Step>
+
+  <Step title="Chart Appears on Canvas">
+    The chart is automatically added to your Chart Canvas at a default position. You can then drag it to your preferred location.
+  </Step>
+</Steps>
+
+### Manual Chart Configuration
+
+You can also create charts programmatically:
+
+```typescript
+interface ChartConfig {
+  type: 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'donut'
+  title: string
+  data: any[]
+  dataKey: string
+  xAxisKey: string
+  yAxisKey: string
+  series?: Array<{ name: string; color: string }>
+  columns?: Array<{ name: string; type: string }>
+  query?: string
+}
+
+const newChart: ChartItem = {
+  id: generateId(),
+  config: {
+    type: 'bar',
+    title: 'Monthly Sales',
+    data: salesData,
+    xAxisKey: 'month',
+    yAxisKey: 'sales',
+    dataKey: 'month'
+  },
+  position: { x: 0, y: 0 }
+}
+```
+
+## Chart Types
+
+Meridian supports six chart types, each optimized for different data patterns.
+
+### Bar Chart
+
+Perfect for comparing categories or time periods.
+
+```typescript
+<BarChart
+  data={data}
+  dataKey="category"
+  series={[
+    { name: 'revenue', color: 'blue' },
+    { name: 'cost', color: 'red' }
+  ]}
+  h={200}
+/>
+```
+
+**Best for:**
+- Comparing values across categories
+- Showing multiple metrics side-by-side
+- Temporal comparisons (monthly, quarterly)
+
+**Example use cases:**
+- Revenue by product category
+- Sales by region
+- Performance metrics comparison
+
+### Line Chart
+
+Ideal for showing trends over time.
+
+```typescript
+<LineChart
+  data={data}
+  dataKey="date"
+  series={[
+    { name: 'revenue', color: 'blue' },
+    { name: 'target', color: 'green' }
+  ]}
+  curveType="linear"
+  h={200}
+/>
+```
+
+**Best for:**
+- Time series data
+- Trend analysis
+- Comparing multiple metrics over time
+
+**Example use cases:**
+- Daily sales trends
+- Website traffic over time
+- Stock price movements
+
+### Area Chart
+
+Similar to line charts but emphasizes volume.
+
+```typescript
+<AreaChart
+  data={data}
+  dataKey="month"
+  series={[
+    { name: 'total_users', color: 'blue' },
+    { name: 'active_users', color: 'green' }
+  ]}
+  curveType="linear"
+  h={200}
+/>
+```
+
+**Best for:**
+- Cumulative values
+- Showing magnitude of change
+- Stacked metrics
+
+**Example use cases:**
+- Cumulative revenue
+- User growth over time
+- Inventory levels
+
+### Pie Chart
+
+Shows proportions of a whole.
+
+```typescript
+<PieChart
+  data={data.map((item, idx) => ({
+    name: item.category,
+    value: item.percentage,
+    color: colors[idx % colors.length]
+  }))}
+  h={200}
+/>
+```
+
+**Best for:**
+- Part-to-whole relationships
+- Percentage distributions
+- Simple category breakdowns
+
+**Example use cases:**
+- Market share
+- Budget allocation
+- Customer segment distribution
+
+### Donut Chart
+
+Variant of pie chart with a center hole.
+
+```typescript
+<DonutChart
+  data={data.map((item, idx) => ({
+    name: item.category,
+    value: item.amount,
+    color: colors[idx % colors.length]
+  }))}
+  h={200}
+/>
+```
+
+**Best for:**
+- Same as pie charts, with more space for labels
+- Highlighting a total in the center
+- Modern, clean aesthetic
+
+**Example use cases:**
+- Revenue by product line
+- Traffic sources
+- Task completion status
+
+### Scatter Plot
+
+Shows relationships between two variables.
+
+```typescript
+<LineChart
+  data={data}
+  dataKey="price"
+  series={[{ name: 'sales_volume', color: 'blue' }]}
+  curveType="linear"
+  withDots
+  h={200}
+/>
+```
+
+**Best for:**
+- Correlation analysis
+- Distribution patterns
+- Outlier detection
+
+**Example use cases:**
+- Price vs. sales volume
+- Age vs. spending
+- Performance metrics relationships
+
+## Dragging and Positioning
+
+Charts are fully draggable using pointer events (works with mouse and touch).
+
+### How Dragging Works
+
+```typescript
+const handlePointerDown = (e: React.PointerEvent) => {
+  // Capture canvas rect and pointer offset
+  const canvasRect = canvasRef.current?.getBoundingClientRect()
+  const canvasLeft = canvasRect?.left ?? 0
+  const canvasTop = canvasRect?.top ?? 0
+
+  dragOffsetRef.current = {
+    x: e.clientX - canvasLeft - position.x,
+    y: e.clientY - canvasTop - position.y
+  }
+
+  // Attach window-level handlers
+  window.addEventListener('pointermove', handlePointerMove)
+  window.addEventListener('pointerup', handlePointerUp)
+}
+```
+
+### Positioning Features
+
+- **Drag handle** - Grab the header or grip icon to move charts
+- **Constrained movement** - Charts stay within canvas bounds
+- **Smooth positioning** - Positions snap to pixel boundaries
+- **Visual feedback** - Charts elevate and show borders when hovered
+
+```typescript
+// Charts constrained to canvas
+const constrainPosition = (pos: { x: number; y: number }) => {
+  const contentWidth = Math.max(0, canvasRect.width - 40)
+  const contentHeight = Math.max(0, canvasRect.height - 40)
+
+  const minX = Math.min(0, contentWidth - CHART_WIDTH)
+  const minY = Math.min(0, contentHeight - CHART_HEIGHT)
+  const maxX = Math.max(0, contentWidth - CHART_WIDTH)
+  const maxY = Math.max(0, contentHeight - CHART_HEIGHT)
+
+  return {
+    x: Math.max(minX, Math.min(maxX, Math.round(pos.x))),
+    y: Math.max(minY, Math.min(maxY, Math.round(pos.y)))
+  }
+}
+```
+
+## Chart Interaction
+
+Charts include several interactive features:
+
+### Hover Effects
+
+```typescript
+<Paper
+  style={{
+    border: isHovered ? '1px solid #dee2e6' : '1px solid #e9ecef',
+    zIndex: isDragging ? 1000 : isHovered ? 10 : 1,
+    cursor: isDragging ? 'grabbing' : 'default'
+  }}
+  onMouseEnter={() => setIsHovered(true)}
+  onMouseLeave={() => setIsHovered(false)}
+>
+```
+
+### Remove Button
+
+Click the X icon to remove a chart:
+
+```typescript
+<ActionIcon
+  onClick={(e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    onRemove()
+  }}
+  style={{
+    opacity: isHovered ? 1 : 0.6,
+    transition: 'opacity 0.2s ease'
+  }}
+>
+  <IconX size={14} />
+</ActionIcon>
+```
+
+### Drag Handle
+
+The grip icon indicates draggable areas:
+
+```typescript
+<Group data-drag-handle style={{ cursor: 'grab' }}>
+  <IconGripVertical size={16} />
+  <Text>{chart.config.title}</Text>
+</Group>
+```
+
+## Live-Time Updates
+
+Charts update automatically when underlying data changes.
+
+<Steps>
+  <Step title="Query Execution">
+    When you or a teammate runs a query that affects chart data:
+
+    ```sql
+    UPDATE sales SET revenue = revenue * 1.1 WHERE region = 'West';
+    ```
+  </Step>
+
+  <Step title="DuckDB Processes Change">
+    The query executes server-side in DuckDB.
+  </Step>
+
+  <Step title="Convex Detects Update">
+    Convex's reactive subscriptions detect the data change automatically.
+  </Step>
+
+  <Step title="Charts Refresh">
+    All connected clients receive the update, and charts refresh with new data within milliseconds.
+
+    ```typescript
+    // Charts re-render with updated data
+    useEffect(() => {
+      // Convex subscription provides fresh data
+      renderChart()
+    }, [data])
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  **Millisecond Updates**
+  
+  Charts update in milliseconds after a query completes, not seconds or minutes. This is faster than batch processing tools like Tableau or PowerBI.
+</Info>
+
+## Chart Canvas Behavior
+
+### Responsive Sizing
+
+The canvas adjusts to your content:
+
+```typescript
+const canvasHeight = useMemo(() => {
+  if (charts.length === 0) return 400
+  const maxY = Math.max(...charts.map(c => c.position.y), 0)
+  return Math.max(400, maxY + CHART_HEIGHT + 60)
+}, [charts])
+```
+
+### Empty State
+
+When no charts exist:
+
+```typescript
+<Box style={{
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: '400px',
+  backgroundColor: '#f8f9fa',
+  border: '1px dashed #dee2e6'
+}}>
+  <Text c="dimmed" size="sm">
+    No charts yet. Create charts using the agent to see them here.
+  </Text>
+</Box>
+```
+
+### Multiple Charts
+
+Arrange multiple charts for comprehensive dashboards:
+
+```typescript
+charts.map((chart) => (
+  <DraggableChart
+    key={chart.id}
+    chart={chart}
+    onRemove={() => onRemoveChart?.(chart.id)}
+    onMove={(pos) => onChartMove?.(chart.id, pos)}
+    canvasRef={canvasRef}
+  />
+))
+```
+
+## Multi-Series Charts
+
+Display multiple metrics on the same chart:
+
+```typescript
+const config: ChartConfig = {
+  type: 'line',
+  title: 'Revenue vs Target',
+  data: monthlyData,
+  xAxisKey: 'month',
+  yAxisKey: 'revenue',
+  dataKey: 'month',
+  series: [
+    { name: 'actual_revenue', color: 'blue' },
+    { name: 'target_revenue', color: 'green' },
+    { name: 'costs', color: 'red' }
+  ]
+}
+```
+
+**Use cases:**
+- Actual vs. target comparison
+- Revenue and costs on the same timeline
+- Multiple product lines
+- Before/after comparisons
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose the Right Chart Type">
+    Match your chart type to your data:
+
+    - **Trends over time?** → Line or Area chart
+    - **Category comparison?** → Bar chart
+    - **Part of whole?** → Pie or Donut chart
+    - **Correlation?** → Scatter plot
+    - **Multiple metrics?** → Multi-series Line or Bar
+  </Accordion>
+
+  <Accordion title="Keep Titles Descriptive">
+    Good chart titles explain what's being shown:
+
+    ❌ "Sales Chart"
+    ✅ "Monthly Sales Revenue by Region (2024)"
+
+    ❌ "Data"
+    ✅ "Customer Acquisition Cost vs. Lifetime Value"
+  </Accordion>
+
+  <Accordion title="Limit Series Count">
+    Too many series make charts hard to read:
+
+    - **Bar/Line charts**: 3-5 series maximum
+    - **Pie/Donut charts**: 5-7 slices maximum
+    - **Scatter plots**: Consider color coding for categories
+  </Accordion>
+
+  <Accordion title="Organize Your Canvas">
+    Arrange charts logically:
+
+    - Group related charts together
+    - Put high-level metrics at the top
+    - Arrange in reading order (left to right, top to bottom)
+    - Leave space between charts for clarity
+  </Accordion>
+
+  <Accordion title="Use Consistent Colors">
+    Maintain color consistency across charts:
+
+    - Use the same color for the same metric across charts
+    - Follow conventional meanings (green = positive, red = negative)
+    - Ensure sufficient contrast for accessibility
+  </Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+<Info>
+  **DuckDB's Analytical Power**
+  
+  DuckDB can analyze millions of rows in seconds. Don't hesitate to create charts from large datasets - the columnar storage and vectorized operations make it fast.
+</Info>
+
+### Optimizing Chart Queries
+
+For best performance:
+
+```sql
+-- Pre-aggregate data for charts
+SELECT 
+  DATE_TRUNC('month', order_date) as month,
+  SUM(amount) as total_revenue,
+  COUNT(*) as order_count
+FROM orders
+GROUP BY month
+ORDER BY month;
+```
+
+Instead of:
+
+```sql
+-- Raw data (slower for large datasets)
+SELECT order_date, amount FROM orders;
+```
+
+## Collaborative Charting
+
+Charts are shared across your team in real-time:
+
+- **Add a chart** → Everyone sees it immediately
+- **Move a chart** → Position updates for all users
+- **Remove a chart** → Disappears from all views
+- **Update data** → All charts refresh automatically
+
+```typescript
+// Chart operations sync via Convex
+const onChartMove = (id: string, position: { x: number; y: number }) => {
+  // Updates local state
+  updateChartPosition(id, position)
+  
+  // Convex automatically syncs to other clients
+  // No manual sync code needed!
+}
+```
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Collaboration Tips" icon="users" href="/guides/collaboration-tips">
+    Learn how to work effectively with your team in Meridian
+  </Card>
+  <Card title="Using AI Agents" icon="sparkles" href="/guides/using-ai-agents">
+    Let AI create and update charts automatically
+  </Card>
+</CardGroup>

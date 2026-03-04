@@ -1,0 +1,412 @@
+---
+title: 'Querying with SQL'
+description: 'Write powerful DuckDB SQL queries to analyze and transform your data'
+icon: 'database'
+---
+
+Meridian uses DuckDB, a high-performance analytical database, to query your data. You can write standard SQL queries with DuckDB's powerful analytical functions.
+
+## Query Editor Overview
+
+The query editor provides a streamlined interface for writing and executing SQL queries.
+
+### Key Features
+
+- **Syntax highlighting** - DuckDB SQL syntax with monospace font
+- **Keyboard shortcuts** - Press Ctrl+Enter (Cmd+Enter on Mac) to execute
+- **Command queue** - Execute multiple queries in sequence
+- **Real-time updates** - Results appear instantly and sync across team members
+- **Query history** - Every query is logged with reproducibility in mind
+
+```typescript
+// Query editor component with command queue support
+<QueryEditor
+  query={query}
+  onQueryChange={setQuery}
+  onExecute={executeQuery}
+  commandQueue={commandQueue}
+  currentCommandIndex={currentCommandIndex}
+/>
+```
+
+## Writing Your First Query
+
+<Steps>
+  <Step title="Open the Query Editor">
+    Navigate to your table view and locate the DuckDB Query Editor panel.
+  </Step>
+
+  <Step title="Write a SELECT Query">
+    Start with a simple SELECT statement to view your data:
+
+    ```sql
+    SELECT * FROM your_table_name LIMIT 10;
+    ```
+
+    This retrieves the first 10 rows from your table.
+  </Step>
+
+  <Step title="Execute the Query">
+    Press **Ctrl+Enter** (or Cmd+Enter on Mac) or click the **Execute** button. Results appear immediately in the data table below.
+  </Step>
+
+  <Step title="View Results">
+    The table updates in real-time to show your query results. All team members viewing the same table see the update simultaneously.
+  </Step>
+</Steps>
+
+## Common SQL Operations
+
+### Filtering Data
+
+Use WHERE clauses to filter rows based on conditions:
+
+```sql
+-- Filter by single condition
+SELECT * FROM sales 
+WHERE amount > 1000;
+
+-- Filter by multiple conditions
+SELECT * FROM sales 
+WHERE amount > 1000 AND region = 'West';
+
+-- Filter with pattern matching
+SELECT * FROM customers 
+WHERE email LIKE '%@company.com';
+```
+
+### Aggregating Data
+
+DuckDB excels at analytical queries with aggregations:
+
+```sql
+-- Calculate summary statistics
+SELECT 
+  COUNT(*) as total_sales,
+  SUM(amount) as total_revenue,
+  AVG(amount) as average_sale,
+  MAX(amount) as highest_sale,
+  MIN(amount) as lowest_sale
+FROM sales;
+
+-- Group by category
+SELECT 
+  category,
+  COUNT(*) as count,
+  SUM(revenue) as total_revenue
+FROM products
+GROUP BY category
+ORDER BY total_revenue DESC;
+```
+
+### Joining Tables
+
+Combine data from multiple tables:
+
+```sql
+-- Inner join
+SELECT 
+  o.order_id,
+  c.customer_name,
+  o.order_date,
+  o.total_amount
+FROM orders o
+INNER JOIN customers c ON o.customer_id = c.id;
+
+-- Left join with aggregation
+SELECT 
+  c.customer_name,
+  COUNT(o.order_id) as order_count,
+  COALESCE(SUM(o.total_amount), 0) as lifetime_value
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id
+GROUP BY c.customer_name;
+```
+
+### Updating Data
+
+Modify existing records in your tables:
+
+```sql
+-- Update single column
+UPDATE products 
+SET price = price * 1.1 
+WHERE category = 'Electronics';
+
+-- Update multiple columns
+UPDATE customers 
+SET status = 'Premium', discount_rate = 0.15 
+WHERE lifetime_value > 10000;
+
+-- Update with calculation
+UPDATE sales 
+SET commission = amount * 0.08 
+WHERE region = 'North';
+```
+
+### Adding New Rows
+
+Insert data into your tables:
+
+```sql
+-- Insert single row
+INSERT INTO customers (name, email, signup_date) 
+VALUES ('John Doe', 'john@example.com', '2024-03-01');
+
+-- Insert multiple rows
+INSERT INTO products (name, price, category) VALUES
+  ('Laptop', 999.99, 'Electronics'),
+  ('Mouse', 29.99, 'Accessories'),
+  ('Keyboard', 79.99, 'Accessories');
+
+-- Insert from query results
+INSERT INTO archived_orders 
+SELECT * FROM orders 
+WHERE order_date < '2023-01-01';
+```
+
+## Advanced DuckDB Features
+
+### Window Functions
+
+Perform calculations across sets of rows:
+
+```sql
+-- Running total
+SELECT 
+  order_date,
+  amount,
+  SUM(amount) OVER (ORDER BY order_date) as running_total
+FROM orders;
+
+-- Rank products by sales
+SELECT 
+  product_name,
+  revenue,
+  RANK() OVER (ORDER BY revenue DESC) as sales_rank,
+  PERCENT_RANK() OVER (ORDER BY revenue DESC) as percentile
+FROM product_sales;
+
+-- Moving average
+SELECT 
+  date,
+  value,
+  AVG(value) OVER (
+    ORDER BY date 
+    ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+  ) as moving_avg_7day
+FROM metrics;
+```
+
+### Date/Time Operations
+
+DuckDB provides powerful date functions:
+
+```sql
+-- Extract date parts
+SELECT 
+  order_date,
+  EXTRACT(YEAR FROM order_date) as year,
+  EXTRACT(MONTH FROM order_date) as month,
+  EXTRACT(DOW FROM order_date) as day_of_week
+FROM orders;
+
+-- Date calculations
+SELECT 
+  signup_date,
+  CURRENT_DATE - signup_date as days_since_signup,
+  DATE_ADD(signup_date, INTERVAL 30 DAY) as trial_end_date
+FROM customers;
+
+-- Group by time period
+SELECT 
+  DATE_TRUNC('month', order_date) as month,
+  SUM(amount) as monthly_revenue
+FROM orders
+GROUP BY month
+ORDER BY month;
+```
+
+### String Manipulation
+
+```sql
+-- Concatenate strings
+SELECT 
+  first_name || ' ' || last_name as full_name,
+  UPPER(email) as email_upper,
+  LOWER(country) as country_lower
+FROM customers;
+
+-- Extract substrings
+SELECT 
+  email,
+  SPLIT_PART(email, '@', 1) as username,
+  SPLIT_PART(email, '@', 2) as domain
+FROM customers;
+
+-- Pattern matching
+SELECT * FROM products 
+WHERE REGEXP_MATCHES(name, '^[A-Z].*Pro$');
+```
+
+## Command Queue
+
+Meridian supports executing multiple SQL commands in sequence. This is perfect for complex data transformations.
+
+<Steps>
+  <Step title="Write Multiple Commands">
+    Separate your SQL statements with semicolons or use the AI agent to generate a command queue.
+  </Step>
+
+  <Step title="Track Progress">
+    The query editor shows which command is currently executing and how many remain:
+
+    ```typescript
+    // Command queue tracking
+    <Badge size="xs" variant="light">
+      {currentCommandIndex + 1} / {commandQueue.length}
+    </Badge>
+    ```
+  </Step>
+
+  <Step title="View Remaining Commands">
+    Expand the command queue panel to see upcoming queries. This helps you understand what's happening in multi-step operations.
+  </Step>
+</Steps>
+
+## Query Logging & Reproducibility
+
+Every query you execute is automatically logged for reproducibility and auditing.
+
+### What Gets Logged
+
+```typescript
+// Query log structure
+queryLog: defineTable({
+  query: v.string(),              // The SQL query text
+  executedAt: v.number(),         // Timestamp
+  userId: v.string(),             // Who ran it
+  tableName: v.string(),          // Target table
+  success: v.boolean(),           // Success/failure
+  error: v.optional(v.string()),  // Error message if failed
+  sequenceNumber: v.number(),     // Order of execution
+  resultMetadata: v.optional(     // Result statistics
+    v.object({
+      rowCount: v.optional(v.number()),
+      columnCount: v.optional(v.number()),
+      executionTimeMs: v.optional(v.number())
+    })
+  )
+})
+```
+
+### Benefits of Query Logging
+
+- **Reproducibility** - Replay any analysis to understand how insights were discovered
+- **Auditing** - Track who made changes and when
+- **Debugging** - Review failed queries to fix issues
+- **Collaboration** - See what queries teammates have run
+- **Learning** - Study successful queries from your team
+
+## Real-Time Collaboration
+
+When you execute a query, all team members viewing the same table see results update instantly.
+
+<Info>
+  **Live Updates Powered by Convex**
+  
+  Meridian uses Convex's reactive subscriptions to push updates to all connected clients. When you run a query:
+  1. Results are computed by DuckDB
+  2. Convex detects the data change
+  3. All subscribed clients receive updates automatically
+  4. UI refreshes with new data in milliseconds
+</Info>
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Use Column Selection">
+    Instead of `SELECT *`, specify only the columns you need:
+    
+    ```sql
+    -- Slower (fetches all columns)
+    SELECT * FROM large_table;
+    
+    -- Faster (fetches only needed columns)
+    SELECT id, name, revenue FROM large_table;
+    ```
+    
+    DuckDB's columnar storage makes this especially efficient.
+  </Accordion>
+
+  <Accordion title="Filter Early">
+    Apply WHERE clauses before joins and aggregations:
+    
+    ```sql
+    -- Better performance
+    SELECT region, SUM(amount)
+    FROM sales
+    WHERE order_date >= '2024-01-01'
+    GROUP BY region;
+    
+    -- vs filtering after aggregation
+    SELECT region, total
+    FROM (
+      SELECT region, SUM(amount) as total
+      FROM sales
+      GROUP BY region
+    )
+    WHERE region = 'West';
+    ```
+  </Accordion>
+
+  <Accordion title="Use LIMIT for Exploration">
+    When exploring large datasets, add LIMIT clauses:
+    
+    ```sql
+    -- Quick preview
+    SELECT * FROM large_dataset LIMIT 100;
+    
+    -- Sample data
+    SELECT * FROM large_dataset 
+    USING SAMPLE 1000 ROWS;
+    ```
+  </Accordion>
+
+  <Accordion title="Leverage DuckDB's Speed">
+    DuckDB is optimized for analytical queries:
+    - Millions of rows? No problem.
+    - Complex aggregations? Lightning fast.
+    - Multiple joins? Handled efficiently.
+    
+    Don't be afraid to run complex queries - DuckDB can handle it.
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+<Warning>
+  **Common Errors**
+  
+  - **Table not found** - Check your table name matches the uploaded file
+  - **Column doesn't exist** - Use `DESCRIBE table_name` to see available columns
+  - **Type mismatch** - Ensure data types match in comparisons and joins
+  - **Syntax error** - Review DuckDB SQL syntax documentation
+</Warning>
+
+When a query fails:
+1. The error message appears in the query editor
+2. The query is logged with error details
+3. You can modify and re-run immediately
+4. Previous results remain visible
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Use AI Agents" icon="sparkles" href="/guides/using-ai-agents">
+    Let AI write SQL queries for you with natural language
+  </Card>
+  <Card title="Create Charts" icon="chart-line" href="/guides/creating-charts">
+    Visualize your query results with interactive charts
+  </Card>
+</CardGroup>

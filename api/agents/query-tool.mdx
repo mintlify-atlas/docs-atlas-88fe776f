@@ -1,0 +1,313 @@
+---
+title: 'Query Tool'
+description: 'Execute SQL queries on DuckDB and retrieve structured data'
+---
+
+## Overview
+
+The Query Tool enables AI agents to execute SQL queries on DuckDB and retrieve structured results. It's the primary tool for reading data from tables, analyzing columns, and performing database operations.
+
+## Core Functions
+
+### queryDuckDB
+
+Execute a SQL query on DuckDB and return the results.
+
+<ParamField path="query" type="string" required>
+  The SQL query to execute on DuckDB. Must be valid DuckDB SQL syntax.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  columns: Array<{ name: string; type: string }>
+  rows: Array<Record<string, any>>
+  rowCount: number
+  columnCount: number
+  error?: string  // Only present if success is false
+}
+```
+
+#### Example Usage
+
+```typescript
+const result = await queryDuckDB.handler(ctx, {
+  query: 'SELECT * FROM sales WHERE amount > 1000 LIMIT 10'
+})
+
+if (result.success) {
+  console.log(`Found ${result.rowCount} rows with ${result.columnCount} columns`)
+  console.log('Columns:', result.columns)
+  console.log('Data:', result.rows)
+}
+```
+
+### getTableSchema
+
+Get the schema (column names and types) of a table.
+
+<ParamField path="tableName" type="string" required>
+  The name of the table to get schema information for.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  tableName: string
+  columns: Array<{ column_name: string; column_type: string }>
+  rows: Array<any>  // Raw DESCRIBE output
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const schema = await getTableSchema.handler(ctx, {
+  tableName: 'customers'
+})
+
+if (schema.success) {
+  console.log(`Schema for ${schema.tableName}:`)
+  schema.rows.forEach(col => {
+    console.log(`  ${col.column_name}: ${col.column_type}`)
+  })
+}
+```
+
+### getSampleRows
+
+Get a sample of rows from a table to understand its structure and content.
+
+<ParamField path="tableName" type="string" required>
+  The name of the table to sample.
+</ParamField>
+
+<ParamField path="limit" type="number" default={10}>
+  Number of rows to return. Default is 10, maximum is 100.
+</ParamField>
+
+#### Response
+
+```typescript
+{
+  success: boolean
+  tableName: string
+  columns: Array<{ name: string; type: string }>
+  rows: Array<Record<string, any>>
+  rowCount: number
+  error?: string
+}
+```
+
+#### Example Usage
+
+```typescript
+const sample = await getSampleRows.handler(ctx, {
+  tableName: 'orders',
+  limit: 5
+})
+
+if (sample.success) {
+  console.log(`Sample of ${sample.rowCount} rows from ${sample.tableName}:`)
+  console.log(JSON.stringify(sample.rows, null, 2))
+}
+```
+
+## Implementation Details
+
+### Tool Definition
+
+The query tools are defined using `createTool` from `@convex-dev/agent`:
+
+```typescript
+import { createTool } from '@convex-dev/agent'
+import { z } from 'zod'
+import { api } from './_generated/api'
+
+export const queryDuckDB = createTool({
+  description:
+    'Execute a SQL query on DuckDB and return the results. Use this to read data from tables, columns, or specific entries. Returns columns, rows, and metadata.',
+  args: z.object({
+    query: z
+      .string()
+      .describe('The SQL query to execute on DuckDB. Must be valid DuckDB SQL.'),
+  }),
+  handler: async (ctx, args) => {
+    try {
+      const result = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+        query: args.query,
+      })
+      return truncateToolResponse({
+        success: true,
+        columns: result.columns || [],
+        rows: result.rows || [],
+        rowCount: result.rows?.length || 0,
+        columnCount: result.columns?.length || 0,
+      })
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      }
+    }
+  },
+})
+```
+
+### Response Truncation
+
+Query results are automatically truncated to optimize token usage:
+
+- Maximum **10 rows** returned (original count stored in `rowCount`)
+- If truncated, `_truncatedRows` flag is set to `true`
+- String fields limited to 2,000 characters
+
+## Usage in Agents
+
+From `table_agent.ts:436-463`, the Query Agent uses these tools to generate SQL:
+
+```typescript
+const query_agent = new Agent(components.agent, {
+  name: 'Query Agent',
+  languageModel: model,
+  instructions: `
+You are an assistant that writes DuckDB SQL queries.
+
+Respond ONLY with a JSON object containing:
+1. "commands": an array of valid DuckDB SQL queries
+2. "description": a concise summary of what the queries do
+
+Always output valid DuckDB SQL.
+`,
+  maxSteps: 4,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    getSampleRows,
+    // ... other tools
+  },
+})
+```
+
+### Example Workflow
+
+When a user asks "Show me the top 10 customers by revenue":
+
+1. **Agent calls `getTableSchema`** to understand table structure
+2. **Agent calls `getSampleRows`** to see example data
+3. **Agent generates SQL query** based on schema understanding
+4. **Agent calls `queryDuckDB`** to execute and return results
+
+## Advanced Features
+
+### Complex Queries
+
+The tool supports all DuckDB SQL features:
+
+```sql
+-- Aggregations
+SELECT category, COUNT(*) as count, AVG(price) as avg_price
+FROM products
+GROUP BY category
+ORDER BY avg_price DESC
+
+-- Joins
+SELECT o.order_id, c.name, o.total
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+WHERE o.created_at > '2024-01-01'
+
+-- Window functions
+SELECT
+  product_id,
+  sales,
+  AVG(sales) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as moving_avg
+FROM daily_sales
+```
+
+### Data Type Support
+
+DuckDB supports various data types, reflected in column metadata:
+
+- **Numeric**: `INTEGER`, `BIGINT`, `DOUBLE`, `DECIMAL`, `FLOAT`
+- **String**: `VARCHAR`, `TEXT`, `CHAR`
+- **Temporal**: `DATE`, `TIMESTAMP`, `TIME`, `INTERVAL`
+- **Complex**: `JSON`, `ARRAY`, `STRUCT`, `MAP`
+
+## Error Handling
+
+Common error scenarios:
+
+<AccordionGroup>
+  <Accordion title="Table or column not found">
+    ```json
+    {
+      "success": false,
+      "error": "Table 'unknown_table' not found"
+    }
+    ```
+    **Solution**: Use `getTableList` to check available tables.
+  </Accordion>
+
+  <Accordion title="Invalid SQL syntax">
+    ```json
+    {
+      "success": false,
+      "error": "Parser Error: syntax error at or near 'SELCT'"
+    }
+    ```
+    **Solution**: Verify SQL syntax matches DuckDB standards.
+  </Accordion>
+
+  <Accordion title="Type mismatch">
+    ```json
+    {
+      "success": false,
+      "error": "Cannot compare INTEGER with VARCHAR"
+    }
+    ```
+    **Solution**: Cast types appropriately using `CAST()` or `::`.
+  </Accordion>
+</AccordionGroup>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Chart Tool" icon="chart-line" href="/api/agents/chart-tool">
+    Visualize query results as charts
+  </Card>
+  <Card title="Data Quality" icon="shield-check">
+    Analyze data quality with `analyzeDataQuality`
+  </Card>
+  <Card title="Compare Tables" icon="code-compare">
+    Compare schemas and data with `compareTables`
+  </Card>
+  <Card title="Table List" icon="list">
+    Get all tables with `getTableList`
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Always check schema first">
+    Use `getTableSchema` before writing queries to understand column names and types.
+  </Step>
+  
+  <Step title="Sample data for context">
+    Call `getSampleRows` to see example data and understand value formats.
+  </Step>
+  
+  <Step title="Use LIMIT for exploration">
+    Add `LIMIT` clauses when exploring large tables to avoid excessive data transfer.
+  </Step>
+  
+  <Step title="Handle errors gracefully">
+    Check the `success` field in responses and handle errors appropriately.
+  </Step>
+</Steps>

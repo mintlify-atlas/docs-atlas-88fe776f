@@ -1,0 +1,162 @@
+---
+title: Introduction
+description: Welcome to Meridian - collaborative data analysis made fast, transparent, and accessible
+---
+
+# Welcome to Meridian
+
+Meridian is a collaborative data analysis platform that makes working with data **tan-times faster** through real-time AI agents, streaming insights, and live-updating charts.
+
+<Info>
+  **Built for teams who need speed without sacrificing transparency.** Every analysis is tracked, every insight is reproducible, and every query happens in real-time.
+</Info>
+
+## What Makes Meridian Different
+
+Traditional data tools force you to choose between power and simplicity. Julius AI and ChatGPT are easy to use but lack collaboration and reproducibility. Traditional BI tools are powerful but require SQL expertise and hours of setup.
+
+Meridian bridges this gap:
+
+<CardGroup cols={2}>
+  <Card title="Natural Language Queries" icon="message">
+    Ask questions in plain English. AI agents translate your intent into optimized SQL queries and show you their reasoning step-by-step.
+  </Card>
+  <Card title="Live Collaboration" icon="users">
+    See teammates' queries, charts, and insights update in real-time. No more waiting for batch processing or emailing screenshots.
+  </Card>
+  <Card title="Instant Analytics" icon="bolt">
+    DuckDB's vectorized OLAP engine analyzes millions of rows in milliseconds. Server-side processing means no browser limitations.
+  </Card>
+  <Card title="Complete Transparency" icon="eye">
+    Every query is logged with timestamps and results. Rollback to previous states. Understand exactly how insights were discovered.
+  </Card>
+</CardGroup>
+
+## Who It's For
+
+<Accordion>
+  <AccordionGroup>
+    <Accordion title="Product Teams">
+      Upload user analytics CSVs, ask questions like "show me users who churned last month", and share live-updating dashboards with stakeholders.
+    </Accordion>
+    <Accordion title="Data Analysts">
+      Write SQL queries with AI assistance, visualize results instantly, and collaborate with teammates without complex BI tool setup.
+    </Accordion>
+    <Accordion title="Research Teams">
+      Upload experimental data, generate statistical insights automatically, and track every analysis step for reproducible research.
+    </Accordion>
+    <Accordion title="Business Teams">
+      Extract data from web pages using Firecrawl integration, analyze trends with natural language, and export findings without technical help.
+    </Accordion>
+  </AccordionGroup>
+</Accordion>
+
+## Key Value Propositions
+
+### 1. Real-Time Collaboration
+
+Powered by [Convex](https://convex.dev), Meridian delivers true real-time updates:
+- Multiple users query simultaneously, all results sync instantly
+- See query history and reasoning steps as they execute
+- Live notifications when teammates discover insights or create charts
+
+### 2. Transparent AI Reasoning
+
+Unlike black-box AI tools, Meridian shows you **exactly how** it thinks:
+- Agents break down requests into executable steps
+- Watch reasoning stream live: "Reading column X..." → "Computing statistics..." → "Found pattern Y"
+- Every generated query is visible and editable before execution
+
+### 3. Server-Side Performance
+
+Built with [TanStack Start](https://tanstack.com/start) and [DuckDB Node API](https://duckdb.org):
+- DuckDB runs server-side (not browser WASM) for 10x faster queries
+- Columnar storage optimized for analytical workloads
+- Analyze millions of rows without browser memory limits
+
+### 4. Zero Setup Required
+
+<Steps>
+  <Step title="Upload Data">
+    Drag and drop CSV files or extract data from URLs using Firecrawl integration
+  </Step>
+  <Step title="Ask Questions">
+    Type natural language queries or write SQL directly in the query editor
+  </Step>
+  <Step title="Get Insights">
+    AI generates statistical findings automatically - outliers, trends, correlations
+  </Step>
+  <Step title="Share Results">
+    Teammates see updates live. No exports, no emails, no waiting
+  </Step>
+</Steps>
+
+## Technology Stack
+
+Meridian combines best-in-class tools for maximum performance:
+
+| Component | Technology | Purpose |
+|-----------|-----------|----------|
+| **Frontend** | [TanStack Start](https://tanstack.com/start) + [Mantine UI](https://mantine.dev) | Server-side rendering with React 19 and beautiful components |
+| **Backend** | [Convex](https://convex.dev) | Real-time, type-safe serverless backend with subscriptions |
+| **Analytics** | [DuckDB](https://duckdb.org) (Node API) | Vectorized OLAP engine for instant query execution |
+| **Storage** | [Cloudflare R2](https://developers.cloudflare.com/r2/) | Cost-effective file storage for uploaded datasets |
+| **AI Agents** | [Gemini 2.5 Flash](https://ai.google.dev) + Convex Agent Component | Streaming text/object generation with tool calling |
+| **Data Extraction** | [Firecrawl](https://firecrawl.dev) | Turn any URL into structured CSV data |
+| **Billing** | [Autumn](https://autumn.com) | Usage-based pricing with automatic metering |
+
+<Note>
+  The full stack is deployed on [Netlify](https://netlify.com) with Convex handling the backend. Authentication uses Convex Auth with support for Google OAuth.
+</Note>
+
+## Competitive Advantages
+
+<CardGroup cols={3}>
+  <Card title="vs Julius AI" icon="wand-magic-sparkles">
+    Meridian adds **query reproducibility**, **streaming reasoning**, and **live team collaboration** that Julius lacks.
+  </Card>
+  <Card title="vs ChatGPT" icon="comments">
+    Meridian provides **persistent analysis workflows**, **real-time team collaboration**, and **transparent reasoning** instead of ephemeral chats.
+  </Card>
+  <Card title="vs Traditional BI" icon="chart-line">
+    Meridian offers **natural language queries**, **AI reasoning**, and **zero setup** compared to weeks of configuration.
+  </Card>
+</CardGroup>
+
+## What You'll Learn
+
+This documentation covers:
+
+- **[Quickstart](/quickstart)**: Get up and running in 5 minutes
+- **[Key Features](/key-features)**: Deep dive into Meridian's 10 core capabilities
+- **API Reference**: Query editor, AI agents, charts, and insights (coming soon)
+- **Integrations**: Firecrawl, Convex, DuckDB, and export options (coming soon)
+
+<Tip>
+  New to data analysis? Start with the [Quickstart guide](/quickstart) to upload your first dataset and run natural language queries.
+</Tip>
+
+## Open Source and Community
+
+Meridian was built in public and shipped on **November 17, 2025**. The project combines:
+- Modern React patterns (React 19, TanStack Router, TanStack Query)
+- Real-time subscriptions (Convex presence API)
+- AI agent orchestration (streaming with tool calls)
+- High-performance analytics (DuckDB OLAP)
+
+<Warning>
+  Meridian is in active development. Some features like Git-like branching of data and merging are coming soon.
+</Warning>
+
+---
+
+## Ready to Start?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Upload data, run your first query, and generate insights in 5 minutes
+  </Card>
+  <Card title="Key Features" icon="star" href="/key-features">
+    Explore all 10 core features with real examples and code snippets
+  </Card>
+</CardGroup>

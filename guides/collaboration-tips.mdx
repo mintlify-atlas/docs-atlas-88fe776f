@@ -1,0 +1,501 @@
+---
+title: 'Collaboration Tips'
+description: 'Work effectively with your team in real-time on data analysis'
+icon: 'users'
+---
+
+Meridian is built for real-time collaboration. Multiple team members can analyze data simultaneously, with all changes syncing instantly across everyone's screens.
+
+## How Real-Time Collaboration Works
+
+Meridian uses Convex's reactive architecture to enable true real-time collaboration without manual refresh.
+
+### Architecture Overview
+
+<Steps>
+  <Step title="Convex Subscriptions">
+    When you open a table, your client subscribes to changes:
+
+    ```typescript
+    // Automatic subscription to table data
+    const data = useQuery(api.table.getData, { tableName })
+    const queryLog = useQuery(api.queryLog.getHistory, { tableName })
+    const notifications = useQuery(api.notifications.getRecent, { tableName })
+    ```
+
+    These subscriptions stay active and push updates automatically.
+  </Step>
+
+  <Step title="User Makes Change">
+    When anyone runs a query or creates a chart:
+
+    ```typescript
+    // Execute query
+    await executeDuckDBQuery(query)
+    
+    // Log the query
+    await ctx.runMutation(api.queryLog.logQuery, {
+      query,
+      tableName,
+      userId,
+      success: true
+    })
+    ```
+  </Step>
+
+  <Step title="Convex Propagates Updates">
+    Convex detects the database change and pushes updates to all subscribed clients within milliseconds.
+  </Step>
+
+  <Step title="All Clients Update">
+    Every user viewing the same table sees:
+    - Updated data in the table
+    - New query in the history
+    - Notification about the change
+    - Charts refresh automatically
+  </Step>
+</Steps>
+
+<Info>
+  **No Manual Refresh Needed**
+  
+  Unlike traditional BI tools, you never need to click "refresh" or reload the page. Updates happen automatically, just like Google Docs.
+</Info>
+
+## Presence Awareness
+
+See who else is viewing the same data in real-time.
+
+### Presence System
+
+Meridian uses Convex Presence Component to track active users:
+
+```typescript
+import { Presence } from '@convex-dev/presence'
+
+export const presence = new Presence(components.presence)
+
+// Heartbeat to maintain presence
+export const heartbeat = mutation({
+  args: {
+    roomId: v.string(),
+    userId: v.string(),
+    sessionId: v.string(),
+    interval: v.number()
+  },
+  handler: async (ctx, args) => {
+    return await presence.heartbeat(ctx, args.roomId, args.userId, args.sessionId, args.interval)
+  }
+})
+
+// List active users
+export const list = query({
+  args: { roomToken: v.string() },
+  handler: async (ctx, { roomToken }) => {
+    const presenceList = await presence.list(ctx, roomToken)
+    
+    // Enrich with user info
+    const listWithUserInfo = await Promise.all(
+      presenceList.map(async (entry) => {
+        const user = await ctx.db.get(entry.userId)
+        return {
+          ...entry,
+          name: user.name,
+          image: user.image
+        }
+      })
+    )
+    
+    return listWithUserInfo
+  }
+})
+```
+
+### Presence Features
+
+- **Active user list** - See avatars of everyone viewing the table
+- **User names** - Hover to see who's who
+- **Session tracking** - Automatic cleanup when users leave
+- **Room-based** - Each table is a separate room
+
+<Tip>
+  Use presence awareness to avoid stepping on each other's toes. If you see a teammate is active, you can coordinate who works on what.
+</Tip>
+
+## Notifications System
+
+Stay informed about team activity with automatic notifications.
+
+### Notification Types
+
+Meridian tracks several types of events:
+
+```typescript
+notifications: defineTable({
+  tableName: v.string(),
+  userId: v.string(),
+  userName: v.optional(v.string()),
+  userImage: v.optional(v.string()),
+  type: v.union(
+    v.literal('query'),
+    v.literal('agent_query'),
+    v.literal('agent_analysis'),
+    v.literal('insights_generated'),
+    v.literal('chart_created')
+  ),
+  message: v.string(),
+  metadata: v.optional(v.any()),
+  createdAt: v.number()
+})
+```
+
+### What Gets Notified
+
+<CardGroup cols={2}>
+  <Card title="Query Execution" icon="terminal">
+    When someone runs a SQL query, all team members see a notification with the query and who ran it.
+  </Card>
+  <Card title="Agent Activity" icon="sparkles">
+    AI agent queries and analyses appear in the activity feed with the user who triggered them.
+  </Card>
+  <Card title="Insights Generated" icon="lightbulb">
+    When auto-insights are discovered, everyone is notified about the findings.
+  </Card>
+  <Card title="Chart Creation" icon="chart-line">
+    New charts appear in the notification feed so the team knows what visualizations exist.
+  </Card>
+</CardGroup>
+
+### Notification UI
+
+Notifications appear in the table sidebar:
+
+```typescript
+<TableNotifications
+  tableName={tableName}
+  notifications={notifications}
+  currentUserId={userId}
+/>
+```
+
+**Features:**
+- Chronological timeline
+- User avatars and names
+- Timestamp for each event
+- Expandable details
+- Auto-scrolling to latest
+
+## Query History & Reproducibility
+
+Every query is logged for transparency and reproducibility.
+
+### Query Log Structure
+
+```typescript
+queryLog: defineTable({
+  query: v.string(),              // SQL query text
+  executedAt: v.number(),         // When it ran
+  userId: v.string(),             // Who ran it
+  tableName: v.string(),          // Target table
+  success: v.boolean(),           // Success/failure
+  error: v.optional(v.string()),  // Error if failed
+  sequenceNumber: v.number(),     // Execution order
+  resultMetadata: v.optional(
+    v.object({
+      rowCount: v.optional(v.number()),
+      columnCount: v.optional(v.number()),
+      executionTimeMs: v.optional(v.number())
+    })
+  )
+})
+  .index('by_userId', ['userId'])
+  .index('by_sequenceNumber', ['sequenceNumber'])
+  .index('by_tableName', ['tableName'])
+  .index('by_userId_tableName', ['userId', 'tableName'])
+```
+
+### Query Timeline
+
+View a chronological timeline of all queries:
+
+```typescript
+<QueryTimeline
+  queryLog={queryLog}
+  currentUserId={userId}
+  onReplayQuery={(query) => executeQuery(query)}
+/>
+```
+
+**Timeline features:**
+- Time-ordered list of queries
+- User attribution for each query
+- Success/failure indicators
+- Execution time metrics
+- Replay button to re-run queries
+- Filter by user or date range
+
+<Tip>
+  Use the query timeline to understand HOW insights were discovered. This is invaluable for learning and debugging.
+</Tip>
+
+## Agent Thread Sharing
+
+Agent conversations are saved and accessible to the whole team.
+
+### Thread Structure
+
+```typescript
+agentThreads: defineTable({
+  userId: v.string(),
+  tableName: v.string(),
+  agentThreadId: v.string(),
+  agentName: v.string(),
+  title: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  lastMessageAt: v.number(),
+  lastMessageSummary: v.optional(v.string()),
+  lastMode: v.optional(v.union(
+    v.literal('query'),
+    v.literal('analysis')
+  ))
+})
+```
+
+### Sharing Benefits
+
+- **Knowledge transfer** - New team members can review past analyses
+- **Avoid duplication** - Check if someone already analyzed a question
+- **Learn from others** - See how experienced analysts approach problems
+- **Collaboration** - Pick up where a colleague left off
+
+### Thread Selection
+
+```typescript
+<Select
+  placeholder="Select a conversation"
+  data={threads.map(thread => ({
+    value: thread.agentThreadId,
+    label: thread.title || 'Untitled conversation'
+  }))}
+  value={selectedThreadId}
+  onChange={onThreadSelect}
+/>
+```
+
+All team members can access and continue any thread.
+
+## Live-Updating Charts
+
+Charts update automatically when anyone changes the data.
+
+### How It Works
+
+<Steps>
+  <Step title="Query Updates Data">
+    Team member runs:
+    ```sql
+    UPDATE products SET price = price * 1.1 WHERE category = 'Electronics';
+    ```
+  </Step>
+
+  <Step title="DuckDB Processes">
+    Query executes server-side in DuckDB.
+  </Step>
+
+  <Step title="Convex Reactivity">
+    Convex detects the change and triggers subscriptions.
+  </Step>
+
+  <Step title="Charts Refresh">
+    All charts displaying affected data refresh automatically on everyone's screens.
+  </Step>
+</Steps>
+
+<Info>
+  **No Batch Processing**
+  
+  Unlike Tableau or PowerBI which batch-process updates, Meridian updates in milliseconds. This is live-time, not near real-time.
+</Info>
+
+## Best Practices for Team Collaboration
+
+<AccordionGroup>
+  <Accordion title="Communicate Intent">
+    Before making significant changes:
+
+    - Check who else is active in the table
+    - Use team chat to coordinate
+    - Create a new thread for exploratory work
+    - Use descriptive query comments:
+    
+    ```sql
+    -- Preparing data for Q1 revenue analysis
+    SELECT region, SUM(revenue) as total
+    FROM sales
+    WHERE order_date >= '2024-01-01'
+    GROUP BY region;
+    ```
+  </Accordion>
+
+  <Accordion title="Use Descriptive Thread Titles">
+    When creating agent threads, use clear titles:
+
+    ❌ "Analysis 1"
+    ✅ "Customer Churn Analysis for Q1 2024"
+
+    ❌ "Questions"
+    ✅ "Product Performance Deep Dive - Electronics Category"
+
+    This helps teammates find relevant work.
+  </Accordion>
+
+  <Accordion title="Review Query History">
+    Before starting an analysis:
+
+    1. Check the query timeline
+    2. See if someone already did similar work
+    3. Build on their queries instead of starting from scratch
+    4. Reference their thread for context
+  </Accordion>
+
+  <Accordion title="Document Insights">
+    When you discover something important:
+
+    - Create a chart to visualize it
+    - Save the agent thread with a descriptive title
+    - Add a comment in your SQL query
+    - Share the finding in team chat
+    - Tag relevant teammates in notifications
+  </Accordion>
+
+  <Accordion title="Respect Ongoing Work">
+    If you see a teammate is:
+
+    - Running a query sequence - Wait for completion
+    - In an agent conversation - Review their thread first
+    - Creating charts - Avoid moving their charts until they're done
+    - Analyzing specific data - Coordinate before updating that data
+  </Accordion>
+
+  <Accordion title="Use Agent Threads Wisely">
+    Threads are persistent and shared:
+
+    - **Start a new thread** for each distinct analysis
+    - **Continue existing threads** when building on previous work
+    - **Name threads descriptively** so others can find them
+    - **Clean up test threads** that aren't useful
+  </Accordion>
+</AccordionGroup>
+
+## Conflict Resolution
+
+Meridian handles concurrent edits gracefully.
+
+### Concurrent Queries
+
+Multiple users can query simultaneously:
+
+- Queries execute in order received
+- Each query is logged separately
+- Results appear for all users
+- No race conditions due to Convex's consistency model
+
+### Concurrent Updates
+
+If two users update the same data:
+
+```sql
+-- User A
+UPDATE products SET price = 100 WHERE id = 1;
+
+-- User B (at same time)
+UPDATE products SET stock = 50 WHERE id = 1;
+```
+
+Both updates succeed because they modify different columns. The final state includes both changes.
+
+### Chart Positioning
+
+If two users move the same chart:
+
+- Last write wins
+- Position updates propagate to all clients
+- No corruption or conflicts
+- Changes are atomic
+
+## Team Communication Patterns
+
+### Daily Standup Review
+
+1. Open the query timeline
+2. Review what the team worked on yesterday
+3. Check agent threads for insights discovered
+4. Discuss any surprising findings
+5. Plan today's analysis work
+
+### Asynchronous Collaboration
+
+1. Start an agent thread with your analysis question
+2. Save the thread with a descriptive title
+3. Leave a note in team chat about what you discovered
+4. Teammates can review and continue your work
+5. Build institutional knowledge over time
+
+### Pair Analysis Sessions
+
+1. Both team members open the same table
+2. One person drives (runs queries)
+3. Other person observes and suggests
+4. Both see results in real-time
+5. Switch roles periodically
+
+## Performance at Scale
+
+<Info>
+  **Built for Teams**
+  
+  Meridian's architecture scales to support multiple concurrent users without performance degradation:
+  
+  - DuckDB handles parallel queries efficiently
+  - Convex scales reactive subscriptions automatically
+  - TanStack Start provides server-side rendering
+  - Cloudflare R2 serves files with global CDN
+</Info>
+
+### Optimization Tips
+
+- **Limit data fetch** - Use WHERE clauses and LIMIT
+- **Pre-aggregate for charts** - GROUP BY before visualization
+- **Index hot paths** - Frequently queried columns benefit from indexes
+- **Use thread history** - Don't re-run expensive queries unnecessarily
+
+## Coming Soon: Git-Like Features
+
+Meridian is planning advanced collaboration features:
+
+<CardGroup cols={2}>
+  <Card title="Data Branching" icon="code-branch">
+    Create branches of your data for experimental analysis without affecting the main dataset.
+  </Card>
+  <Card title="Merge Capabilities" icon="code-merge">
+    Merge changes from experimental branches back to the main dataset after validation.
+  </Card>
+  <Card title="Conflict Resolution UI" icon="scales">
+    Visual interface for resolving conflicts when merging data branches.
+  </Card>
+  <Card title="Version History" icon="clock-rotate-left">
+    Time-travel to any previous state of your data with full rollback capability.
+  </Card>
+</CardGroup>
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Uploading Data" icon="upload" href="/guides/uploading-data">
+    Learn how to add new datasets for team analysis
+  </Card>
+  <Card title="Using AI Agents" icon="sparkles" href="/guides/using-ai-agents">
+    Collaborate with AI to analyze data faster
+  </Card>
+</CardGroup>

@@ -1,0 +1,568 @@
+---
+title: 'Insights Discovery'
+description: 'AI-powered insights that automatically find patterns and anomalies in your data'
+icon: 'lightbulb'
+---
+
+## Overview
+
+Meridian's Insights Discovery feature uses AI to automatically analyze your data and surface meaningful patterns, trends, anomalies, and statistical findings. The insights panel provides actionable intelligence without requiring manual analysis.
+
+## Insight Types
+
+Insights are categorized into five types:
+
+<CardGroup cols={2}>
+  <Card title="Outliers" icon="exclamation-triangle">
+    Data points that deviate significantly from expected patterns
+  </Card>
+  <Card title="Trends" icon="arrow-trend-up">
+    Directional movements and patterns over time
+  </Card>
+  <Card title="Aggregations" icon="calculator">
+    Summary statistics and calculations across groups
+  </Card>
+  <Card title="Patterns" icon="brain">
+    Recurring behaviors and relationships in the data
+  </Card>
+  <Card title="Anomalies" icon="triangle-exclamation">
+    Unusual occurrences that warrant attention
+  </Card>
+</CardGroup>
+
+## Insight Structure
+
+```tsx
+interface Insight {
+  title: string
+  description: string
+  type: 'outlier' | 'trend' | 'aggregation' | 'pattern' | 'anomaly'
+  severity: 'low' | 'medium' | 'high'
+}
+```
+
+### Severity Levels
+
+- **High**: Requires immediate attention, significant impact
+- **Medium**: Notable finding, should be reviewed
+- **Low**: Informational, good to know
+
+## Insights Panel
+
+The insights panel is implemented in `InsightsPanel.tsx`:
+
+```tsx
+import { InsightsPanel } from '@/components/InsightsPanel'
+
+<InsightsPanel
+  insights={insights}
+  isLoading={isGenerating}
+  onGenerate={handleGenerate}
+  onRefresh={handleRefresh}
+  onDismiss={handleDismiss}
+  error={error}
+  hasData={hasData}
+/>
+```
+
+### Panel Features
+
+<Steps>
+  <Step title="Collapsible Header">
+    Expand/collapse to save screen space:
+    ```tsx
+    <ActionIcon onClick={() => setExpanded(v => !v)}>
+      {expanded ? <IconChevronUp /> : <IconChevronDown />}
+    </ActionIcon>
+    ```
+  </Step>
+  
+  <Step title="Insight Count Badge">
+    Shows total number of insights:
+    ```tsx
+    {insights.length > 0 && (
+      <Badge size="xs" variant="light" color="violet">
+        {insights.length}
+      </Badge>
+    )}
+    ```
+  </Step>
+  
+  <Step title="Refresh Control">
+    Regenerate insights (bypasses cache):
+    ```tsx
+    <ActionIcon onClick={onRefresh} loading={isLoading}>
+      <IconRefresh size={16} />
+    </ActionIcon>
+    ```
+  </Step>
+  
+  <Step title="Scrollable Content">
+    Insights list with smooth scrolling:
+    ```tsx
+    <ScrollArea
+      maxHeight="calc(100vh - 200px)"
+      type="auto"
+      offsetScrollbars
+    >
+      {insights.map((insight, idx) => (
+        <InsightCard key={idx} insight={insight} />
+      ))}
+    </ScrollArea>
+    ```
+  </Step>
+</Steps>
+
+## Insight Cards
+
+Each insight is displayed in an interactive card:
+
+```tsx
+function InsightCard({ insight }: { insight: Insight }) {
+  const [expanded, setExpanded] = useState(false)
+  
+  return (
+    <Box
+      onClick={() => setExpanded(v => !v)}
+      style={{
+        backgroundColor: 'rgba(255,255,255,0.87)',
+        borderRadius: 'var(--mantine-radius-md)',
+        border: `1px solid ${getSeverityColor(insight.severity)}`,
+        cursor: 'pointer',
+      }}
+    >
+      <Group justify="space-between">
+        <Group gap="xs">
+          {getInsightIcon(insight.type)}
+          <Text fw={600}>{insight.title}</Text>
+        </Group>
+        <Badge 
+          size="xs" 
+          color={getSeverityColor(insight.severity)}
+        >
+          {insight.severity}
+        </Badge>
+      </Group>
+      
+      <Text 
+        size="xs" 
+        c="dimmed"
+        style={{
+          overflow: expanded ? undefined : 'hidden',
+          textOverflow: expanded ? 'unset' : 'ellipsis',
+          whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+        }}
+      >
+        {insight.description}
+      </Text>
+    </Box>
+  )
+}
+```
+
+From `/home/daytona/workspace/source/src/components/InsightsPanel.tsx:69`
+
+## Generating Insights
+
+### Manual Generation
+
+```tsx
+const handleGenerateInsights = async () => {
+  setIsGenerating(true)
+  setError(null)
+  
+  try {
+    const result = await generateInsights({
+      tableName: currentTable,
+      data: tableData,
+    })
+    
+    setInsights(result.insights)
+  } catch (err) {
+    setError(err.message)
+  } finally {
+    setIsGenerating(false)
+  }
+}
+```
+
+### Automatic Generation
+
+Insights can be generated automatically:
+- After query execution
+- When new data is uploaded
+- On table change
+- Via AI agent
+
+### Cache Strategy
+
+Insights are cached to avoid redundant processing:
+
+```tsx
+// Check cache first
+const cached = await getCachedInsights({ tableName })
+if (cached && !forceRefresh) {
+  return cached.insights
+}
+
+// Generate new insights
+const newInsights = await generateWithAI({ tableName, data })
+
+// Cache results
+await cacheInsights({
+  tableName,
+  insights: newInsights,
+  expiresAt: Date.now() + 3600000, // 1 hour
+})
+```
+
+See [Insights Cache API](/api/insights-cache) for details.
+
+## Icon & Color Mapping
+
+### Type Icons
+
+```tsx
+function getInsightIcon(type: Insight['type']) {
+  switch (type) {
+    case 'outlier':
+    case 'anomaly':
+      return <IconAlertTriangle size={16} />
+    case 'trend':
+      return <IconTrendingUp size={16} />
+    case 'aggregation':
+      return <IconChartBar size={16} />
+    default:
+      return <IconBrain size={16} />
+  }
+}
+```
+
+### Severity Colors
+
+```tsx
+function getSeverityColor(severity: Insight['severity']) {
+  switch (severity) {
+    case 'high':
+      return 'red'
+    case 'medium':
+      return 'orange'
+    case 'low':
+      return 'blue'
+  }
+}
+```
+
+## Statistical Findings
+
+The `StatisticalFindingsPanel` provides detailed statistical analysis:
+
+```tsx
+import { StatisticalFindingsPanel } from '@/components/StatisticalFindingsPanel'
+
+<StatisticalFindingsPanel findings={findings} />
+```
+
+### Finding Structure
+
+```tsx
+type StatisticalFinding = {
+  columnName: string
+  columnType: string
+  hasNumericData: boolean
+  stats?: {
+    mean: number
+    median: number
+    stdDev: number
+    min: number
+    max: number
+    q1: number
+    q3: number
+    iqr: number
+    count: number
+  }
+}
+```
+
+### Statistical Metrics
+
+<AccordionGroup>
+  <Accordion title="Mean (Average)">
+    Sum of all values divided by count:
+    ```tsx
+    const mean = data.reduce((sum, val) => sum + val, 0) / data.length
+    ```
+  </Accordion>
+  
+  <Accordion title="Median">
+    Middle value when sorted:
+    ```tsx
+    const sorted = [...data].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    ```
+  </Accordion>
+  
+  <Accordion title="Standard Deviation">
+    Measure of spread from the mean:
+    ```tsx
+    const variance = data.reduce((sum, val) => 
+      sum + Math.pow(val - mean, 2), 0) / data.length
+    const stdDev = Math.sqrt(variance)
+    ```
+  </Accordion>
+  
+  <Accordion title="Quartiles (Q1, Q3)">
+    25th and 75th percentiles:
+    ```tsx
+    const sorted = [...data].sort((a, b) => a - b)
+    const q1 = sorted[Math.floor(sorted.length * 0.25)]
+    const q3 = sorted[Math.floor(sorted.length * 0.75)]
+    const iqr = q3 - q1
+    ```
+  </Accordion>
+  
+  <Accordion title="Coefficient of Variation">
+    Relative variability measure:
+    ```tsx
+    const cv = (stdDev / mean) * 100
+    // < 15%: Low variability (green)
+    // 15-30%: Moderate (yellow)
+    // 30-50%: High (orange)
+    // > 50%: Very high (red)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Visualization Components
+
+### Stat Cards
+
+```tsx
+<StatCard
+  title="Average Mean"
+  value={aggregateStats.avgMean}
+  description="Across all columns"
+  icon={<IconChartBar size={24} />}
+  color="violet"
+/>
+```
+
+### Ring Progress
+
+Shows coefficient of variation:
+
+```tsx
+<RingProgress
+  size={60}
+  thickness={6}
+  sections={[
+    {
+      value: Math.min(cv, 100),
+      color: getVariabilityColor(cv),
+    },
+  ]}
+  label={
+    <Text size="xs" ta="center" fw={700}>
+      {cv.toFixed(0)}%
+    </Text>
+  }
+/>
+```
+
+### Distribution Progress
+
+Visualizes mean and median position:
+
+```tsx
+<Progress
+  value={meanPercent}
+  color="blue"
+  size="sm"
+  radius="xl"
+/>
+<Progress
+  value={medianPercent}
+  color="violet"
+  size="sm"
+  radius="xl"
+/>
+```
+
+From `/home/daytona/workspace/source/src/components/StatisticalFindingsPanel.tsx:559`
+
+## Empty States
+
+### No Data
+
+```tsx
+{!hasData && (
+  <Box p="lg" style={{ textAlign: 'center' }}>
+    <IconBrain size={32} style={{ color: 'var(--mantine-color-gray-4)' }} />
+    <Text size="sm" c="dimmed">
+      Run a query to generate insights
+    </Text>
+  </Box>
+)}
+```
+
+### No Insights Yet
+
+```tsx
+{hasData && insights.length === 0 && (
+  <Box p="lg" style={{ textAlign: 'center' }}>
+    <Text size="sm" c="dimmed" mb="md">
+      No insights generated yet
+    </Text>
+    <Button
+      leftSection={<IconSparkles size={16} />}
+      onClick={onGenerate}
+      loading={isLoading}
+      variant="light"
+      color="violet"
+    >
+      Generate Insights
+    </Button>
+  </Box>
+)}
+```
+
+## Integration with AI Agent
+
+The AI agent can generate insights as part of its analysis:
+
+```tsx
+// User: "What insights can you find in this data?"
+
+// Agent uses generateInsights tool
+const insights = await generateInsights({
+  tableName: 'sales',
+  data: queryResults,
+})
+
+// Returns structured insights
+// {
+//   insights: [
+//     {
+//       title: "Revenue spike in Q4",
+//       description: "Revenue increased 45% in Q4 compared to Q3...",
+//       type: "trend",
+//       severity: "high"
+//     },
+//     ...
+//   ]
+// }
+```
+
+## Performance Optimization
+
+### Lazy Loading
+
+```tsx
+const [insights, setInsights] = useState<Insight[]>([])
+const [isLoading, setIsLoading] = useState(false)
+
+useEffect(() => {
+  // Only load when panel is expanded
+  if (expanded && insights.length === 0) {
+    loadInsights()
+  }
+}, [expanded])
+```
+
+### Debounced Generation
+
+```tsx
+const debouncedGenerate = useDebouncedCallback(
+  async () => {
+    await generateInsights()
+  },
+  1000 // Wait 1s after last change
+)
+
+// Trigger on data changes
+useEffect(() => {
+  if (hasData) {
+    debouncedGenerate()
+  }
+}, [tableData])
+```
+
+### Pagination
+
+```tsx
+const [page, setPage] = useState(1)
+const itemsPerPage = 10
+const visibleInsights = insights.slice(
+  (page - 1) * itemsPerPage,
+  page * itemsPerPage
+)
+```
+
+## Advanced Tips
+
+<AccordionGroup>
+  <Accordion title="Custom Insight Rules">
+    Define custom rules for your domain:
+    ```tsx
+    const customInsights = [
+      {
+        condition: (data) => data.revenue < 1000,
+        insight: {
+          title: "Low Revenue Alert",
+          description: "Revenue below threshold",
+          type: "anomaly",
+          severity: "high"
+        }
+      }
+    ]
+    ```
+  </Accordion>
+  
+  <Accordion title="Insight Actions">
+    Add actions to insights:
+    ```tsx
+    <Button
+      onClick={() => {
+        // Create query based on insight
+        setQuery(insight.suggestedQuery)
+        // Or create chart
+        createChart(insight.chartConfig)
+      }}
+    >
+      Investigate
+    </Button>
+    ```
+  </Accordion>
+  
+  <Accordion title="Export Insights">
+    Save insights for reporting:
+    ```tsx
+    const exportInsights = () => {
+      const data = JSON.stringify(insights, null, 2)
+      const blob = new Blob([data], { type: 'application/json' })
+      downloadBlob(blob, 'insights.json')
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API Reference
+
+Insights use the following APIs:
+
+- `api.insights.generate` - Generate new insights
+- `api.insights.get` - Retrieve cached insights
+- `api.insights.refresh` - Force regeneration
+
+See [Insights Tool API](/api/agents/insights-tool) for full documentation.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Agents" icon="robot" href="/features/ai-agents">
+    Use AI agents to automatically analyze your data
+  </Card>
+  <Card title="Statistical Analysis" icon="calculator" href="/guides/using-ai-agents">
+    Learn how to interpret statistical findings
+  </Card>
+</CardGroup>

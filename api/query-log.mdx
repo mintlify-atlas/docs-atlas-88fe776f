@@ -1,0 +1,452 @@
+---
+title: 'Query Log API'
+description: 'Track, replay, and analyze SQL query execution history'
+icon: 'clock-rotate-left'
+---
+
+## Overview
+
+The Query Log system tracks every SQL query executed against DuckDB tables, providing:
+
+- **Complete audit trail** - Every query with timestamps and user attribution
+- **Error tracking** - Failed queries with error messages
+- **Performance metrics** - Execution times, row counts, and column counts
+- **Global sequencing** - Temporal ordering for replay and rollback
+- **Per-table history** - Isolated query logs for each data table
+
+<Info>
+Query logs use a **global sequence number** to ensure consistent temporal ordering across all users and tables.
+</Info>
+
+## Schema
+
+See the [queryLog table definition](/api/convex-schema#querylog) for complete field reference.
+
+## Core Functions
+
+### logQuery
+
+Records a query execution with metadata.
+
+<ParamField path="query" type="string" required>
+  The SQL query string executed
+</ParamField>
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table name the query was executed against
+</ParamField>
+
+<ParamField path="success" type="boolean" required>
+  Whether the query executed successfully
+</ParamField>
+
+<ParamField path="error" type="string">
+  Error message if the query failed
+</ParamField>
+
+<ParamField path="resultMetadata" type="object">
+  Query result statistics
+  
+  <Expandable title="Properties">
+    <ParamField path="rowCount" type="number">
+      Number of rows returned
+    </ParamField>
+    <ParamField path="columnCount" type="number">
+      Number of columns in result set
+    </ParamField>
+    <ParamField path="executionTimeMs" type="number">
+      Query execution duration in milliseconds
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="returns" type="Id<'queryLog'>">
+  The ID of the created query log entry
+</ResponseField>
+
+```typescript convex/queryLog.ts
+export const logQuery = mutation({
+  args: {
+    query: v.string(),
+    tableName: v.string(),
+    success: v.boolean(),
+    error: v.optional(v.string()),
+    resultMetadata: v.optional(
+      v.object({
+        rowCount: v.optional(v.number()),
+        columnCount: v.optional(v.number()),
+        executionTimeMs: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const userId = await checkAuth(ctx)
+    
+    // Get highest global sequence number
+    const allQueries = await ctx.db.query('queryLog').collect()
+    const maxSequence = allQueries.length > 0
+      ? Math.max(...allQueries.map(q => q.sequenceNumber))
+      : -1
+    
+    const sequenceNumber = maxSequence + 1
+    
+    return await ctx.db.insert('queryLog', {
+      query: args.query,
+      tableName: args.tableName,
+      executedAt: Date.now(),
+      userId,
+      success: args.success,
+      error: args.error,
+      sequenceNumber,
+      resultMetadata: args.resultMetadata,
+    })
+  },
+})
+```
+
+### Usage Example
+
+```typescript Frontend Usage
+import { useMutation } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+
+function QueryExecutor() {
+  const logQuery = useMutation(api.queryLog.logQuery)
+  
+  const executeQuery = async (sql: string, tableName: string) => {
+    const startTime = Date.now()
+    
+    try {
+      // Execute query against DuckDB
+      const result = await executeDuckDBQuery(sql)
+      const executionTime = Date.now() - startTime
+      
+      // Log successful execution
+      await logQuery({
+        query: sql,
+        tableName,
+        success: true,
+        resultMetadata: {
+          rowCount: result.rows.length,
+          columnCount: result.columns.length,
+          executionTimeMs: executionTime,
+        },
+      })
+      
+      return result
+    } catch (error) {
+      // Log failed execution
+      await logQuery({
+        query: sql,
+        tableName,
+        success: false,
+        error: error.message,
+      })
+      
+      throw error
+    }
+  }
+  
+  return (
+    <button onClick={() => executeQuery('SELECT * FROM sales', 'sales')}>
+      Run Query
+    </button>
+  )
+}
+```
+
+---
+
+### getQueryLogs
+
+Retrieve query history for the current user, optionally filtered by table.
+
+<ParamField path="tableName" type="string">
+  Filter logs to a specific table (omit to get all tables)
+</ParamField>
+
+<ParamField path="limit" type="number" default="1000">
+  Maximum number of logs to return
+</ParamField>
+
+<ResponseField name="returns" type="array">
+  Array of query log records, sorted by sequence number (most recent first)
+</ResponseField>
+
+```typescript convex/queryLog.ts
+export const getQueryLogs = query({
+  args: {
+    tableName: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await checkAuth(ctx)
+    const limit = args.limit || 1000
+    
+    let dbQuery = ctx.db
+      .query('queryLog')
+      .withIndex('by_userId', q => q.eq('userId', userId))
+    
+    // Filter by tableName if provided
+    if (args.tableName) {
+      dbQuery = ctx.db
+        .query('queryLog')
+        .withIndex('by_userId_tableName', q =>
+          q.eq('userId', userId).eq('tableName', args.tableName)
+        )
+    }
+    
+    const logs = await dbQuery.order('desc').take(limit)
+    
+    return logs.sort((a, b) => b.sequenceNumber - a.sequenceNumber)
+  },
+})
+```
+
+### Usage Example
+
+```typescript Frontend Usage
+import { useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+
+function QueryHistory({ tableName }: { tableName: string }) {
+  const logs = useQuery(api.queryLog.getQueryLogs, { tableName, limit: 50 })
+  
+  if (!logs) return <div>Loading...</div>
+  
+  return (
+    <div>
+      <h2>Query History</h2>
+      {logs.map(log => (
+        <div key={log._id}>
+          <code>{log.query}</code>
+          <span>{log.success ? '✓' : '✗'}</span>
+          <span>{new Date(log.executedAt).toLocaleString()}</span>
+          {log.resultMetadata && (
+            <span>
+              {log.resultMetadata.rowCount} rows in {log.resultMetadata.executionTimeMs}ms
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+---
+
+### getQueryLogsUpTo
+
+Retrieve all queries up to a specific sequence number (for rollback/replay).
+
+<ParamField path="tableName" type="string" required>
+  DuckDB table name (safety: only returns logs for this table)
+</ParamField>
+
+<ParamField path="sequenceNumber" type="number" required>
+  Maximum sequence number to include
+</ParamField>
+
+<ResponseField name="returns" type="array">
+  Array of query logs sorted by sequence number (ascending)
+</ResponseField>
+
+```typescript convex/queryLog.ts
+export const getQueryLogsUpTo = query({
+  args: {
+    tableName: v.string(),
+    sequenceNumber: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await checkAuth(ctx)
+    
+    const allLogs = await ctx.db
+      .query('queryLog')
+      .withIndex('by_userId_tableName', q =>
+        q.eq('userId', userId).eq('tableName', args.tableName)
+      )
+      .collect()
+    
+    return allLogs
+      .filter(log => log.sequenceNumber <= args.sequenceNumber)
+      .sort((a, b) => a.sequenceNumber - b.sequenceNumber)
+  },
+})
+```
+
+---
+
+### getLatestSequenceNumber
+
+Get the most recent sequence number for a table (or all tables).
+
+<ParamField path="tableName" type="string">
+  Filter to a specific table (omit for global latest)
+</ParamField>
+
+<ResponseField name="returns" type="number | null">
+  Latest sequence number, or `null` if no queries exist
+</ResponseField>
+
+```typescript convex/queryLog.ts
+export const getLatestSequenceNumber = query({
+  args: {
+    tableName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) return null
+    
+    let dbQuery = ctx.db
+      .query('queryLog')
+      .withIndex('by_userId', q => q.eq('userId', userId))
+    
+    if (args.tableName) {
+      dbQuery = ctx.db
+        .query('queryLog')
+        .withIndex('by_userId_tableName', q =>
+          q.eq('userId', userId).eq('tableName', args.tableName)
+        )
+    }
+    
+    const allQueries = await dbQuery.collect()
+    
+    if (allQueries.length === 0) return null
+    
+    return Math.max(...allQueries.map(q => q.sequenceNumber))
+  },
+})
+```
+
+---
+
+## Replay & Rollback
+
+The query log enables time-travel functionality by replaying queries up to a specific point:
+
+```typescript Replay Pattern
+async function replayToSequenceNumber(
+  tableName: string,
+  targetSequence: number
+) {
+  // 1. Get all queries up to target sequence
+  const logs = await ctx.runQuery(api.queryLog.getQueryLogsUpTo, {
+    tableName,
+    sequenceNumber: targetSequence,
+  })
+  
+  // 2. Reset table to initial state
+  await executeDuckDBQuery(`DROP TABLE IF EXISTS ${tableName}_replay`)
+  await executeDuckDBQuery(`CREATE TABLE ${tableName}_replay AS SELECT * FROM ${tableName}_original`)
+  
+  // 3. Replay successful queries in order
+  for (const log of logs) {
+    if (log.success) {
+      try {
+        await executeDuckDBQuery(
+          log.query.replace(tableName, `${tableName}_replay`)
+        )
+      } catch (error) {
+        console.warn(`Failed to replay query ${log.sequenceNumber}:`, error)
+      }
+    }
+  }
+  
+  // 4. Swap tables
+  await executeDuckDBQuery(`DROP TABLE ${tableName}`)
+  await executeDuckDBQuery(`ALTER TABLE ${tableName}_replay RENAME TO ${tableName}`)
+}
+```
+
+<Warning>
+Replay functionality should be implemented client-side or in a Convex action, since it requires executing DuckDB queries.
+</Warning>
+
+## Performance Considerations
+
+### Query Log Size
+
+Query logs grow over time. Consider:
+
+- **Archiving old logs** - Move logs older than 90 days to cold storage
+- **Per-table limits** - Keep only the last N queries per table
+- **Compression** - Store large query strings separately
+
+### Index Optimization
+
+The `by_userId_tableName` composite index is optimized for the most common query pattern:
+
+```typescript
+// Fast: Uses composite index
+const logs = await ctx.db
+  .query('queryLog')
+  .withIndex('by_userId_tableName', q =>
+    q.eq('userId', userId).eq('tableName', tableName)
+  )
+  .collect()
+
+// Slower: Only uses first part of index
+const logs = await ctx.db
+  .query('queryLog')
+  .withIndex('by_userId', q => q.eq('userId', userId))
+  .filter(q => q.eq(q.field('tableName'), tableName))
+  .collect()
+```
+
+## Analytics Use Cases
+
+### Query Performance Analysis
+
+```typescript
+function analyzeQueryPerformance(logs: QueryLog[]) {
+  const successfulQueries = logs.filter(log => log.success)
+  
+  const avgExecutionTime = successfulQueries.reduce(
+    (sum, log) => sum + (log.resultMetadata?.executionTimeMs || 0),
+    0
+  ) / successfulQueries.length
+  
+  const slowQueries = successfulQueries.filter(
+    log => (log.resultMetadata?.executionTimeMs || 0) > 1000
+  )
+  
+  return {
+    totalQueries: logs.length,
+    successRate: (successfulQueries.length / logs.length) * 100,
+    avgExecutionTime,
+    slowQueries,
+  }
+}
+```
+
+### Most Common Queries
+
+```typescript
+function findCommonQueries(logs: QueryLog[]) {
+  const queryCounts = new Map<string, number>()
+  
+  logs.forEach(log => {
+    const normalized = log.query.trim().toLowerCase()
+    queryCounts.set(normalized, (queryCounts.get(normalized) || 0) + 1)
+  })
+  
+  return Array.from(queryCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Schema Reference" icon="database" href="/api/convex-schema#querylog">
+    Complete queryLog table definition
+  </Card>
+  <Card title="Insights Cache" icon="sparkles" href="/api/insights-cache">
+    AI-powered query result analysis
+  </Card>
+  <Card title="DuckDB Integration" icon="database" href="/api/duckdb/query-api">
+    Learn about the DuckDB query engine
+  </Card>
+</CardGroup>

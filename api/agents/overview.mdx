@@ -1,0 +1,168 @@
+---
+title: 'Agent Tools Overview'
+description: 'Powerful tools that enable AI agents to interact with databases, create visualizations, and access web data'
+---
+
+## Introduction
+
+Meridian's AI agents leverage a comprehensive suite of tools to analyze data, generate insights, and interact with external information sources. These tools are built using the `@convex-dev/agent` framework and provide seamless integration between AI models and database operations.
+
+## Available Tools
+
+Agent tools are organized into three main categories:
+
+### Database Operations
+
+<CardGroup cols={2}>
+  <Card title="Query Tool" icon="database" href="/api/agents/query-tool">
+    Execute SQL queries and retrieve data from DuckDB
+  </Card>
+  <Card title="Schema Tools" icon="table">
+    Get table schemas, sample rows, and database structure
+  </Card>
+</CardGroup>
+
+### Data Visualization
+
+<CardGroup cols={2}>
+  <Card title="Chart Tool" icon="chart-line" href="/api/agents/chart-tool">
+    Create interactive charts from query results
+  </Card>
+  <Card title="Insights Tool" icon="lightbulb" href="/api/agents/insights-tool">
+    Generate AI-powered insights from data analysis
+  </Card>
+</CardGroup>
+
+### Web Integration
+
+<CardGroup cols={2}>
+  <Card title="Web Search" icon="magnifying-glass" href="/api/agents/web-scraping">
+    Search the web using Firecrawl integration
+  </Card>
+  <Card title="Web Scraping" icon="globe" href="/api/agents/web-scraping">
+    Extract content and structured data from web pages
+  </Card>
+</CardGroup>
+
+## Tool Architecture
+
+All agent tools follow a consistent architecture:
+
+```typescript
+import { createTool } from '@convex-dev/agent'
+import { z } from 'zod'
+
+export const toolName = createTool({
+  description: 'Tool description for the AI agent',
+  args: z.object({
+    // Zod schema for tool arguments
+  }),
+  handler: async (ctx, args) => {
+    // Tool implementation
+    return { success: true, data: result }
+  },
+})
+```
+
+## Response Truncation
+
+To optimize token usage and reduce costs, all tool responses are automatically truncated:
+
+- **String fields**: Maximum 2,000 characters
+- **Large content**: Maximum 5,000 characters (markdown/HTML)
+- **Arrays**: Maximum 10 items
+- **Rows returned**: Maximum 10 rows (with `rowCount` indicating total)
+
+Truncated responses include flags like `_truncatedRows`, `_truncatedSources`, etc.
+
+## Agent Modes
+
+Meridian uses two specialized agents that leverage these tools:
+
+### Query Agent
+
+Generates SQL queries for database operations:
+
+- Writes valid DuckDB SQL
+- Splits complex requests into multiple queries
+- Returns structured JSON with commands and descriptions
+- Maximum 10 queries per request
+
+### Analysis Agent
+
+Explores and analyzes databases with tool assistance:
+
+- Queries and inspects DuckDB tables
+- Creates visualizations from data
+- Searches web for external context
+- Assesses data quality and compares tables
+- Maximum 6 tool execution steps
+
+## Tool Registration
+
+Tools are registered when creating agents:
+
+```typescript
+import { Agent } from '@convex-dev/agent'
+import {
+  queryDuckDB,
+  createChart,
+  generateInsights,
+  firecrawlSearch,
+  scrapeWebPage,
+  getTableSchema,
+  getSampleRows,
+} from './agent_tools'
+
+const agent = new Agent(components.agent, {
+  name: 'Analysis Agent',
+  languageModel: model,
+  instructions: 'Agent instructions...',
+  maxSteps: 6,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    getSampleRows,
+    createChart,
+    generateInsights,
+    firecrawlSearch,
+    scrapeWebPage,
+  },
+})
+```
+
+## Error Handling
+
+All tools implement consistent error handling:
+
+```typescript
+try {
+  const result = await performOperation()
+  return {
+    success: true,
+    // ... result data
+  }
+} catch (error) {
+  return {
+    success: false,
+    error: error instanceof Error ? error.message : 'Unknown error occurred',
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Tool" icon="database" href="/api/agents/query-tool">
+    Learn about database query operations
+  </Card>
+  <Card title="Chart Tool" icon="chart-line" href="/api/agents/chart-tool">
+    Create visualizations from data
+  </Card>
+  <Card title="Web Tools" icon="globe" href="/api/agents/web-scraping">
+    Integrate external web data
+  </Card>
+  <Card title="Using AI Agents" icon="robot" href="/guides/using-ai-agents">
+    Guide to working with agents
+  </Card>
+</CardGroup>

@@ -1,0 +1,248 @@
+---
+title: Architecture Overview
+description: Understanding Meridian's modern full-stack architecture
+icon: building
+---
+
+## System Architecture
+
+Meridian is built as a modern full-stack application that combines real-time data processing, AI-powered analytics, and collaborative features. The architecture is designed for scalability, performance, and developer experience.
+
+### High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Client Layer                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │   Dashboard  │  │  Table View  │  │  AI Agent    │          │
+│  │   (React)    │  │   (React)    │  │  Interface   │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+                              ↕
+┌─────────────────────────────────────────────────────────────────┐
+│                    TanStack Start (SSR)                          │
+│  - Server Functions    - API Routes    - File-based Routing     │
+└─────────────────────────────────────────────────────────────────┘
+                              ↕
+┌─────────────────────────────────────────────────────────────────┐
+│                    Backend Services                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │   Convex     │  │   DuckDB     │  │  Cloudflare  │          │
+│  │  (Backend)   │  │  (Analytics) │  │     R2       │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+                              ↕
+┌─────────────────────────────────────────────────────────────────┐
+│                       AI Services                                │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │  Gemini AI   │  │  Firecrawl   │  │   Convex     │          │
+│  │   (Agent)    │  │  (Web Data)  │  │   Agent      │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Core Architectural Layers
+
+### 1. Frontend Layer
+
+Built with **React 19** and **TanStack Start**, the frontend provides a modern, type-safe interface.
+
+**Key Components:**
+- **Dashboard** (`src/routes/_authed/dashboard.tsx:55`) - File management and overview
+- **Table View** (`src/routes/_authed/table.$table.tsx:52`) - Interactive data exploration
+- **AI Agent Interface** (`src/components/AgentEditor.tsx`) - Natural language queries
+- **Real-time Notifications** (`src/components/TableNotifications.tsx`) - Collaborative updates
+
+**UI Framework:**
+- **Mantine UI 8.3.6** - Component library with comprehensive features
+- **TanStack Table 8.21** - Powerful data grid with sorting, filtering, pagination
+- **Recharts 3.4** - Declarative charting library
+- **Motion 12.23** - Smooth animations and transitions
+
+### 2. Backend Layer
+
+**Convex** serves as the primary backend, providing:
+
+<CardGroup cols={2}>
+  <Card title="Real-time Database" icon="database">
+    Reactive queries with automatic subscriptions
+  </Card>
+  <Card title="Server Functions" icon="code">
+    Type-safe mutations, queries, and actions
+  </Card>
+  <Card title="Authentication" icon="shield">
+    Built-in auth with @convex-dev/auth
+  </Card>
+  <Card title="File Storage" icon="file">
+    Integration with Cloudflare R2
+  </Card>
+</CardGroup>
+
+**Key Files:**
+- Schema definition: `convex/schema.ts:9`
+- File management: `convex/csv.ts:10`
+- AI agent: `convex/table_agent.ts:436`
+- Query logging: `convex/queryLog.ts`
+
+### 3. Data Processing Layer
+
+**DuckDB** handles analytical queries and data transformations:
+
+```typescript
+// Server-side DuckDB instance
+const db = await getDuckDB() // src/utils/duckdb.ts:18
+const result = await connection.run(query)
+```
+
+**Features:**
+- In-memory analytical processing
+- SQL query execution
+- CSV/JSON data ingestion
+- Statistical analysis
+- Integration with MotherDuck for cloud persistence
+
+### 4. Storage Layer
+
+**Cloudflare R2** provides object storage:
+
+```typescript
+// R2 integration via @convex-dev/r2
+const storageId = await r2.store(ctx, blob, { type })
+const url = await r2.getUrl(storageId)
+```
+
+**Stored Objects:**
+- Uploaded CSV/Excel files
+- Generated JSON datasets
+- File metadata in Convex
+
+### 5. AI Layer
+
+**Google Gemini 2.5 Flash** powers intelligent features:
+
+```typescript
+// AI model configuration
+const model = google_gemini.languageModel('gemini-2.5-flash')
+```
+
+**Capabilities:**
+- Natural language to SQL conversion
+- Data analysis and insights
+- Statistical interpretation
+- Chart recommendations
+
+**Additional AI Services:**
+- **Firecrawl** - Web scraping and data extraction
+- **Convex Agent** - Structured tool calling and workflow orchestration
+
+## Key Architecture Patterns
+
+### Server Functions
+
+TanStack Start's server functions provide type-safe client-server communication:
+
+```typescript
+export const queryDuckDB = createServerFn()
+  .inputValidator((query: string) => query)
+  .handler(async ({ data: query }) => {
+    // Server-side execution
+  })
+```
+
+### Real-time Subscriptions
+
+Convex provides automatic reactivity:
+
+```typescript
+// Client automatically re-renders when data changes
+const { data: files } = useQuery(convexQuery(api.csv.getFiles, {}))
+```
+
+### File-based Routing
+
+TanStack Start uses file-system routing:
+
+```
+src/routes/
+  ├── index.tsx           # Home page
+  ├── _authed/
+  │   ├── route.tsx       # Auth layout
+  │   ├── dashboard.tsx   # Dashboard
+  │   └── table.$table.tsx # Dynamic table view
+  └── api/
+      └── duckdb/
+          └── query.ts    # API endpoint
+```
+
+### State Management
+
+Combination of:
+- **TanStack Query** - Server state and caching
+- **React State** - Local UI state
+- **Convex Subscriptions** - Real-time data
+
+## Security Architecture
+
+### Authentication Flow
+
+```typescript
+// Check authentication in all protected operations
+const userId = await checkAuth(ctx) // convex/authFns.ts
+```
+
+**Features:**
+- Session-based authentication via @convex-dev/auth
+- User context in all backend operations
+- Protected routes with authentication guards
+
+### Authorization
+
+Row-level security ensures users only access their data:
+
+```typescript
+const files = await ctx.db
+  .query('files')
+  .filter((q) => q.eq(q.field('uploadedBy'), userId))
+  .collect()
+```
+
+## Performance Optimizations
+
+<AccordionGroup>
+  <Accordion title="Pagination">
+    Large datasets are paginated client-side with customizable page sizes (50, 100, 200 rows)
+  </Accordion>
+  
+  <Accordion title="Query Caching">
+    TanStack Query caches server responses with configurable invalidation
+  </Accordion>
+  
+  <Accordion title="Streaming Responses">
+    AI agent responses stream incrementally for better UX
+  </Accordion>
+  
+  <Accordion title="Column Virtualization">
+    Only visible columns are rendered, improving performance with wide tables
+  </Accordion>
+</AccordionGroup>
+
+## Deployment Architecture
+
+Meridian can be deployed to multiple platforms:
+
+**Recommended Stack:**
+- **Frontend + SSR**: Netlify, Vercel, or Cloudflare Pages
+- **Backend**: Convex (fully managed)
+- **Storage**: Cloudflare R2
+- **Database**: DuckDB with MotherDuck
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tech Stack Details" icon="layer-group" href="/architecture/tech-stack">
+    Explore detailed information about each technology
+  </Card>
+  <Card title="Data Flow" icon="arrow-right-arrow-left" href="/architecture/data-flow">
+    Learn how data moves through the system
+  </Card>
+</CardGroup>

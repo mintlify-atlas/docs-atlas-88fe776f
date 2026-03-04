@@ -1,0 +1,547 @@
+---
+title: 'Charts & Visualization'
+description: 'Create interactive charts and visualizations from your data'
+icon: 'chart-bar'
+---
+
+## Overview
+
+Meridian's chart canvas provides a flexible, drag-and-drop interface for creating and arranging data visualizations. Built with Mantine Charts, it supports multiple chart types with full customization.
+
+## Supported Chart Types
+
+<CardGroup cols={3}>
+  <Card title="Bar Chart" icon="chart-simple">
+    Compare categories and show distributions
+  </Card>
+  <Card title="Line Chart" icon="chart-line">
+    Display trends over time or sequences
+  </Card>
+  <Card title="Area Chart" icon="chart-area">
+    Show cumulative totals and ranges
+  </Card>
+  <Card title="Pie Chart" icon="chart-pie">
+    Visualize proportions and percentages
+  </Card>
+  <Card title="Donut Chart" icon="circle-notch">
+    Similar to pie with center emphasis
+  </Card>
+  <Card title="Scatter Plot" icon="circle">
+    Show correlations and distributions
+  </Card>
+</CardGroup>
+
+## Chart Canvas
+
+The chart canvas is a draggable workspace where charts can be positioned freely:
+
+```tsx
+import { ChartCanvas } from '@/components/ChartCanvas'
+
+<ChartCanvas
+  charts={charts}
+  onRemoveChart={handleRemove}
+  onChartMove={handleMove}
+/>
+```
+
+### Chart Item Structure
+
+```tsx
+interface ChartItem {
+  id: string
+  config: ChartConfig
+  position: { x: number; y: number }
+}
+
+interface ChartConfig {
+  type: 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'donut'
+  title: string
+  data: any[]
+  dataKey: string        // X-axis key for cartesian charts
+  xAxisKey: string       // Label key
+  yAxisKey: string       // Value key
+  series?: Array<{       // Multiple series support
+    name: string
+    color: string
+  }>
+  columns?: Array<{
+    name: string
+    type: string
+  }>
+  query?: string         // Source query
+}
+```
+
+## Creating Charts
+
+### From Query Results
+
+```tsx
+const createChartFromQuery = async (query: string) => {
+  // Execute query
+  const results = await queryDuckDB({ query })
+  
+  // Create chart config
+  const chartConfig: ChartConfig = {
+    type: 'bar',
+    title: 'Revenue by Category',
+    data: results.rows,
+    dataKey: 'category',
+    xAxisKey: 'category',
+    yAxisKey: 'revenue',
+    query: query,
+  }
+  
+  // Add to canvas
+  const newChart: ChartItem = {
+    id: generateId(),
+    config: chartConfig,
+    position: { x: 20, y: 20 }
+  }
+  
+  setCharts(prev => [...prev, newChart])
+}
+```
+
+### Using AI Agent
+
+The AI agent can create charts automatically:
+
+```tsx
+// User: "Create a bar chart showing sales by region"
+
+// Agent uses createChart tool
+await createChart({
+  type: 'bar',
+  title: 'Sales by Region',
+  data: queryResults,
+  xAxisKey: 'region',
+  yAxisKey: 'total_sales'
+})
+```
+
+## Drag and Drop
+
+Charts are draggable using pointer events for smooth interaction:
+
+### Drag Implementation
+
+From `/home/daytona/workspace/source/src/components/ChartCanvas.tsx:104`:
+
+```tsx
+const handlePointerDown = (e: React.PointerEvent) => {
+  // Only drag from header or drag handle
+  const target = e.target as HTMLElement
+  if (!target.closest('[data-drag-handle]') && 
+      !target.closest('[data-chart-header]')) {
+    return
+  }
+  
+  // Store initial offset
+  const canvasRect = canvasRef.current?.getBoundingClientRect()
+  dragOffsetRef.current = {
+    x: e.clientX - canvasRect.left - position.x,
+    y: e.clientY - canvasRect.top - position.y,
+  }
+  
+  setIsDragging(true)
+  window.addEventListener('pointermove', handlePointerMove)
+  window.addEventListener('pointerup', handlePointerUp)
+}
+```
+
+### Position Constraints
+
+```tsx
+const constrainPosition = (pos: { x: number; y: number }) => {
+  const canvasRect = canvasRectRef.current
+  if (!canvasRect) return pos
+  
+  const contentWidth = Math.max(0, canvasRect.width - 40)
+  const contentHeight = Math.max(0, canvasRect.height - 40)
+  
+  const minX = Math.min(0, contentWidth - CHART_WIDTH)
+  const minY = Math.min(0, contentHeight - CHART_HEIGHT)
+  const maxX = Math.max(0, contentWidth - CHART_WIDTH)
+  const maxY = Math.max(0, contentHeight - CHART_HEIGHT)
+  
+  return {
+    x: Math.max(minX, Math.min(maxX, Math.round(pos.x))),
+    y: Math.max(minY, Math.min(maxY, Math.round(pos.y))),
+  }
+}
+```
+
+## Chart Types
+
+### Bar Chart
+
+```tsx
+<BarChart
+  data={config.data}
+  dataKey={config.dataKey}
+  h={200}
+  series={[
+    { name: 'Revenue', color: 'blue' },
+    { name: 'Profit', color: 'green' }
+  ]}
+/>
+```
+
+Use cases:
+- Category comparisons
+- Time series (discrete periods)
+- Multiple series comparison
+
+### Line Chart
+
+```tsx
+<LineChart
+  data={config.data}
+  dataKey={config.dataKey}
+  h={200}
+  series={[
+    { name: 'Sales', color: 'blue' },
+    { name: 'Target', color: 'red' }
+  ]}
+  curveType="linear"
+/>
+```
+
+Use cases:
+- Time series trends
+- Continuous data
+- Multiple metric tracking
+
+### Area Chart
+
+```tsx
+<AreaChart
+  data={config.data}
+  dataKey={config.dataKey}
+  h={200}
+  series={[
+    { name: 'Total', color: 'blue' },
+    { name: 'Active', color: 'green' }
+  ]}
+  curveType="linear"
+/>
+```
+
+Use cases:
+- Cumulative totals
+- Stacked metrics
+- Volume over time
+
+### Pie & Donut Charts
+
+```tsx
+const colors = ['blue', 'green', 'red', 'yellow', 'purple']
+
+<PieChart
+  data={config.data.map((item, idx) => ({
+    name: String(item[config.xAxisKey]),
+    value: Number(item[config.yAxisKey]),
+    color: colors[idx % colors.length],
+  }))}
+  h={200}
+/>
+
+<DonutChart
+  data={/* same format */}
+  h={200}
+/>
+```
+
+Use cases:
+- Proportions and percentages
+- Market share
+- Budget allocation
+
+### Scatter Plot
+
+```tsx
+<LineChart
+  data={config.data}
+  dataKey={config.dataKey}
+  h={200}
+  series={[{ name: config.yAxisKey, color: 'blue' }]}
+  curveType="linear"
+  withDots
+/>
+```
+
+Use cases:
+- Correlations
+- Distribution analysis
+- Outlier detection
+
+## Chart Customization
+
+### Colors
+
+Customize series colors:
+
+```tsx
+const series = [
+  { name: 'Revenue', color: 'blue' },
+  { name: 'Cost', color: 'red' },
+  { name: 'Profit', color: 'green' },
+]
+```
+
+Mantine provides color palettes:
+- `blue`, `red`, `green`, `yellow`, `purple`
+- `orange`, `cyan`, `pink`, `indigo`, `teal`
+
+### Size
+
+Chart dimensions are configurable:
+
+```tsx
+const CHART_WIDTH = 480
+const CHART_HEIGHT = 370  // includes header/padding
+```
+
+The actual chart height is 200px with additional padding for header and controls.
+
+### Multi-Series
+
+Display multiple metrics:
+
+```tsx
+const chartConfig: ChartConfig = {
+  type: 'line',
+  title: 'Sales vs Target',
+  data: results.rows,
+  dataKey: 'month',
+  xAxisKey: 'month',
+  yAxisKey: 'sales',
+  series: [
+    { name: 'actual_sales', color: 'blue' },
+    { name: 'target_sales', color: 'red' },
+    { name: 'forecast_sales', color: 'green' },
+  ]
+}
+```
+
+## Canvas Management
+
+### Empty State
+
+```tsx
+if (charts.length === 0) {
+  return (
+    <Box style={{ minHeight: '400px', textAlign: 'center' }}>
+      <Text c="dimmed" size="sm">
+        No charts yet. Create charts using the agent.
+      </Text>
+    </Box>
+  )
+}
+```
+
+### Dynamic Height
+
+```tsx
+const canvasHeight = useMemo(() => {
+  if (charts.length === 0) return 400
+  const maxY = Math.max(...charts.map(c => c.position.y), 0)
+  return Math.max(400, maxY + CHART_HEIGHT + 60)
+}, [charts])
+```
+
+### Resize Observer
+
+```tsx
+useEffect(() => {
+  const el = canvasRef.current
+  if (!el) return
+  
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const rect = entry.contentRect
+      setCanvasSize({
+        width: Math.max(0, rect.width - 40),
+        height: Math.max(0, rect.height - 40),
+      })
+    }
+  })
+  
+  ro.observe(el)
+  return () => ro.disconnect()
+}, [])
+```
+
+## Chart Actions
+
+### Remove Chart
+
+```tsx
+<ActionIcon
+  size="sm"
+  variant="subtle"
+  color="gray"
+  onClick={(e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    onRemove()
+  }}
+>
+  <IconX size={14} />
+</ActionIcon>
+```
+
+### Move Chart
+
+```tsx
+const handleMove = (chartId: string, newPosition: { x: number; y: number }) => {
+  setCharts(prev => 
+    prev.map(chart => 
+      chart.id === chartId 
+        ? { ...chart, position: newPosition }
+        : chart
+    )
+  )
+}
+```
+
+### Export Chart
+
+Charts can be exported as images or JSON:
+
+```tsx
+const exportChartAsJSON = (chart: ChartItem) => {
+  const json = JSON.stringify(chart, null, 2)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${chart.config.title}.json`
+  a.click()
+  
+  URL.revokeObjectURL(url)
+}
+```
+
+## Advanced Patterns
+
+### Linked Charts
+
+Create multiple views of the same data:
+
+```tsx
+const createLinkedCharts = (data: any[]) => {
+  const charts = [
+    {
+      type: 'bar',
+      title: 'Revenue by Category',
+      data,
+      xAxisKey: 'category',
+      yAxisKey: 'revenue'
+    },
+    {
+      type: 'pie',
+      title: 'Market Share',
+      data,
+      xAxisKey: 'category',
+      yAxisKey: 'revenue'
+    }
+  ]
+  
+  return charts.map((config, idx) => ({
+    id: `chart_${idx}`,
+    config,
+    position: { x: 20 + idx * 500, y: 20 }
+  }))
+}
+```
+
+### Dashboard Layout
+
+Arrange charts in a grid:
+
+```tsx
+const arrangeInGrid = (charts: ChartItem[], cols: number = 2) => {
+  return charts.map((chart, idx) => ({
+    ...chart,
+    position: {
+      x: (idx % cols) * 500,
+      y: Math.floor(idx / cols) * 400
+    }
+  }))
+}
+```
+
+### Responsive Charts
+
+Charts adapt to canvas size changes:
+
+```tsx
+useEffect(() => {
+  if (!canvasRef.current) return
+  if (canvasSize.width === 0 || canvasSize.height === 0) return
+  
+  const maxX = Math.max(0, canvasSize.width - CHART_WIDTH)
+  const maxY = Math.max(0, canvasSize.height - CHART_HEIGHT)
+  
+  charts.forEach((c) => {
+    const constrainedX = Math.max(0, Math.min(maxX, c.position.x))
+    const constrainedY = Math.max(0, Math.min(maxY, c.position.y))
+    if (constrainedX !== c.position.x || constrainedY !== c.position.y) {
+      onChartMove?.(c.id, { x: constrainedX, y: constrainedY })
+    }
+  })
+}, [canvasSize])
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Limit Data Points">
+    For large datasets, aggregate before charting:
+    ```sql
+    -- Group by day instead of minute
+    SELECT 
+      DATE_TRUNC('day', timestamp) as date,
+      AVG(value) as avg_value
+    FROM metrics
+    GROUP BY date
+    ```
+  </Accordion>
+  
+  <Accordion title="Debounce Drag Updates">
+    Use throttling for smooth dragging:
+    ```tsx
+    const throttledMove = useThrottle((id, pos) => {
+      onChartMove(id, pos)
+    }, 16) // ~60fps
+    ```
+  </Accordion>
+  
+  <Accordion title="Virtual Scrolling">
+    For many charts, consider virtualization:
+    ```tsx
+    import { useVirtualizer } from '@tanstack/react-virtual'
+    
+    const virtualizer = useVirtualizer({
+      count: charts.length,
+      getScrollElement: () => canvasRef.current,
+      estimateSize: () => CHART_HEIGHT,
+    })
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Insights Discovery" icon="lightbulb" href="/features/insights-discovery">
+    Generate automatic insights from your charts
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/features/ai-agents">
+    Use AI to create charts automatically
+  </Card>
+</CardGroup>

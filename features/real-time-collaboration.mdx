@@ -1,0 +1,442 @@
+---
+title: 'Real-Time Collaboration'
+description: 'Work together on data analysis with live presence and notifications'
+icon: 'users'
+---
+
+## Overview
+
+Meridian enables multiple users to collaborate on data analysis in real-time. See who's viewing the same table, get notified of changes, and coordinate analysis efforts seamlessly.
+
+## Presence System
+
+The presence system tracks active users and their current context:
+
+### User Presence
+
+```tsx
+interface UserPresence {
+  userId: string
+  userName: string
+  tableName?: string        // Current table being viewed
+  lastActivity: number      // Timestamp
+  isActive: boolean
+}
+```
+
+### Presence Indicators
+
+Active users are displayed with avatars and status:
+
+```tsx
+<Group>
+  {activeUsers.map(user => (
+    <Tooltip key={user.userId} label={user.userName}>
+      <Avatar
+        size="sm"
+        radius="xl"
+        color={user.isActive ? 'green' : 'gray'}
+      >
+        {user.userName[0]}
+      </Avatar>
+    </Tooltip>
+  ))}
+</Group>
+```
+
+<Info>
+  Active presence is updated every 30 seconds and expires after 2 minutes of inactivity
+</Info>
+
+## Notifications
+
+Users receive real-time notifications for important events:
+
+### Notification Types
+
+<AccordionGroup>
+  <Accordion title="Query Execution">
+    Notified when other users run queries on the current table:
+    ```tsx
+    {
+      type: 'query_executed',
+      userId: 'user_123',
+      userName: 'Alice',
+      tableName: 'sales',
+      query: 'SELECT * FROM sales WHERE amount > 1000',
+      timestamp: Date.now()
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Data Changes">
+    Alerted when data is modified:
+    ```tsx
+    {
+      type: 'data_modified',
+      userId: 'user_456',
+      userName: 'Bob',
+      tableName: 'customers',
+      operation: 'UPDATE',
+      rowsAffected: 15,
+      timestamp: Date.now()
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Chart Creation">
+    See when visualizations are created:
+    ```tsx
+    {
+      type: 'chart_created',
+      userId: 'user_789',
+      userName: 'Carol',
+      chartType: 'bar',
+      chartTitle: 'Revenue by Region',
+      timestamp: Date.now()
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Insights Generated">
+    Know when new insights are discovered:
+    ```tsx
+    {
+      type: 'insights_generated',
+      userId: 'user_101',
+      userName: 'Dave',
+      tableName: 'sales',
+      insightCount: 5,
+      timestamp: Date.now()
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Notification Display
+
+Notifications appear in the table header:
+
+```tsx
+import { TableNotifications } from '@/components/TableNotifications'
+
+<TableNotifications
+  notifications={notifications}
+  onDismiss={handleDismiss}
+  onClear={handleClearAll}
+/>
+```
+
+Implementation:
+
+```tsx
+<Box>
+  {notifications.map(notification => (
+    <Alert key={notification.id} variant="light">
+      <Group justify="space-between">
+        <Stack gap={4}>
+          <Text size="sm" fw={600}>
+            {notification.userName}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {notification.message}
+          </Text>
+        </Stack>
+        <ActionIcon
+          size="sm"
+          onClick={() => onDismiss(notification.id)}
+        >
+          <IconX size={14} />
+        </ActionIcon>
+      </Group>
+    </Alert>
+  ))}
+</Box>
+```
+
+## Query History
+
+The query timeline shows all queries executed on a table:
+
+### Timeline Component
+
+```tsx
+import { QueryTimeline } from '@/components/QueryTimeline'
+
+<QueryTimeline
+  tableName={tableName}
+  onRollbackComplete={handleRollback}
+/>
+```
+
+### Query Log Entry
+
+```tsx
+interface QueryLogEntry {
+  _id: string
+  _creationTime: number
+  userId: string
+  userName: string
+  tableName: string
+  query: string
+  success: boolean
+  rowsAffected?: number
+  executionTime?: number
+  error?: string
+}
+```
+
+### Timeline Features
+
+<CardGroup cols={2}>
+  <Card title="Query History" icon="clock">
+    View all queries executed on the table with timestamps and user attribution
+  </Card>
+  <Card title="Rollback" icon="rotate-left">
+    Revert to previous table states using query history
+  </Card>
+  <Card title="Query Replay" icon="play">
+    Re-execute previous queries to reproduce results
+  </Card>
+  <Card title="Error Tracking" icon="exclamation-triangle">
+    See which queries failed and why
+  </Card>
+</CardGroup>
+
+## Live Data Updates
+
+Meridian uses Convex's reactive queries for real-time data synchronization:
+
+### Reactive Queries
+
+```tsx
+import { useQuery } from 'convex/react'
+import { api } from '@/convex/_generated/api'
+
+// Automatically updates when data changes
+const tableData = useQuery(
+  api.csv.getTableData,
+  { tableName }
+)
+
+const queryLogs = useQuery(
+  api.queryLog.getLogsForTable,
+  { tableName }
+)
+
+const presence = useQuery(
+  api.presence.getActiveUsers,
+  { tableName }
+)
+```
+
+### Optimistic Updates
+
+For better UX, apply optimistic updates before server confirmation:
+
+```tsx
+const [localData, setLocalData] = useState(serverData)
+
+const handleUpdate = async (newData) => {
+  // Immediate local update
+  setLocalData(newData)
+  
+  try {
+    // Server update
+    await updateMutation({ data: newData })
+  } catch (error) {
+    // Rollback on error
+    setLocalData(serverData)
+    notifications.show({
+      title: 'Update Failed',
+      message: error.message,
+      color: 'red',
+    })
+  }
+}
+```
+
+## Conflict Resolution
+
+When multiple users modify the same data:
+
+### Last-Write-Wins
+
+Meridian uses last-write-wins for simple conflict resolution:
+
+```tsx
+interface DataUpdate {
+  rowId: string
+  columnName: string
+  oldValue: any
+  newValue: any
+  userId: string
+  timestamp: number
+}
+
+// The update with the latest timestamp wins
+const resolveConflict = (update1: DataUpdate, update2: DataUpdate) => {
+  return update1.timestamp > update2.timestamp ? update1 : update2
+}
+```
+
+### Conflict Notifications
+
+Users are notified when their changes are overwritten:
+
+```tsx
+notifications.show({
+  title: 'Update Conflict',
+  message: `Your changes to ${columnName} were overwritten by ${userName}`,
+  color: 'orange',
+  autoClose: 5000,
+})
+```
+
+## Collaboration Patterns
+
+### Read-Heavy Workflows
+
+Ideal for:
+- Dashboard viewing
+- Report generation
+- Data exploration
+- Analysis review
+
+```tsx
+// Multiple users can view without interference
+const tableData = useQuery(api.csv.getTableData, { tableName })
+const insights = useQuery(api.insights.get, { tableName })
+```
+
+### Write-Heavy Workflows
+
+Best practices:
+- Communicate before making changes
+- Use query history to track modifications
+- Enable notifications for the table
+- Consider locking critical operations
+
+### Analysis Handoff
+
+Pass analysis work between team members:
+
+1. **Share Agent Threads**: Send the thread ID to collaborators
+2. **Export Query History**: Download and share SQL queries
+3. **Snapshot Charts**: Save chart configurations for reuse
+4. **Document Insights**: Add notes to insight panels
+
+## API Integration
+
+Collaboration features use these Convex APIs:
+
+### Presence API
+
+```tsx
+// Update presence
+await updatePresence({
+  userId: currentUser.id,
+  tableName: currentTable,
+  timestamp: Date.now(),
+})
+
+// Get active users
+const activeUsers = await getActiveUsers({ tableName })
+```
+
+### Notifications API
+
+```tsx
+// Send notification
+await sendNotification({
+  type: 'query_executed',
+  tableName,
+  userId: currentUser.id,
+  metadata: { query: sqlQuery },
+})
+
+// Get notifications
+const notifications = await getNotifications({
+  userId: currentUser.id,
+  tableName,
+})
+```
+
+### Query Log API
+
+```tsx
+// Log query
+await logQuery({
+  userId: currentUser.id,
+  tableName,
+  query: sqlQuery,
+  success: true,
+  rowsAffected: 42,
+  executionTime: 125, // ms
+})
+
+// Get query history
+const history = await getQueryHistory({ tableName })
+```
+
+See [API Reference](/api/query-log) for full details.
+
+## Privacy & Security
+
+<Warning>
+  All users in a workspace can see each other's queries and presence. Ensure team members have appropriate access levels.
+</Warning>
+
+### Access Control
+
+Collaboration respects workspace permissions:
+- **Viewers**: Can see data and presence, cannot modify
+- **Editors**: Can query and modify data
+- **Admins**: Full access including user management
+
+### Audit Trail
+
+All actions are logged for accountability:
+
+```tsx
+interface AuditLogEntry {
+  userId: string
+  action: 'query' | 'update' | 'delete' | 'create'
+  tableName: string
+  details: string
+  timestamp: number
+  ipAddress?: string
+}
+```
+
+## Performance Considerations
+
+### Subscription Limits
+
+Convex subscriptions are efficient, but monitor:
+- Number of active presence subscriptions
+- Notification subscription count
+- Query log subscription size
+
+### Pagination
+
+For large query histories, use pagination:
+
+```tsx
+const { results, loadMore, isLoading } = usePaginatedQuery(
+  api.queryLog.getLogsForTable,
+  { tableName },
+  { initialNumItems: 50 }
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query History" icon="clock-rotate-left" href="/guides/collaboration-tips">
+    Learn advanced collaboration workflows
+  </Card>
+  <Card title="Insights Discovery" icon="lightbulb" href="/features/insights-discovery">
+    Generate and share insights with your team
+  </Card>
+</CardGroup>

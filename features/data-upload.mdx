@@ -1,0 +1,279 @@
+---
+title: 'Data Upload'
+description: 'Upload CSV files and extract data from URLs to create queryable tables'
+icon: 'upload'
+---
+
+## Overview
+
+Meridian provides flexible data ingestion options to get your data into the platform quickly. You can upload CSV files directly or extract structured data from web pages using AI-powered extraction.
+
+## Upload Methods
+
+The data upload interface provides two methods for importing data:
+
+### File Upload
+
+Drag and drop CSV, XLSX, or XLS files (up to 10MB) directly into Meridian. Files are automatically:
+
+1. Uploaded to Cloudflare R2 storage
+2. Processed into DuckDB tables
+3. Made available for querying and analysis
+
+### URL Extraction
+
+Extract structured data from any webpage using AI:
+
+1. Enter the URL of the webpage
+2. Provide a prompt describing what data to extract
+3. Meridian uses Firecrawl to scrape and extract structured data
+4. The extracted data is converted to a table automatically
+
+<CodeGroup>
+
+```tsx File Upload Component
+import { Dropzone, MIME_TYPES } from '@mantine/dropzone'
+import { useUploadFile } from '@convex-dev/r2/react'
+
+const handleDrop = async (acceptedFiles: File[]) => {
+  for (const file of acceptedFiles) {
+    // Upload to R2
+    const storageId = await uploadFile(file)
+    
+    // Save metadata
+    const fileId = await saveFile({
+      storageId,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    })
+    
+    // Create DuckDB table for CSV files
+    if (file.type === 'text/csv') {
+      const result = await createTableFromCSV({
+        data: { csvUrl, tableName }
+      })
+    }
+  }
+}
+```
+
+```tsx URL Extraction
+const handleURLSubmit = async () => {
+  // Extract data using Firecrawl
+  const result = await createTableFromURL({
+    url: url.trim(),
+    prompt: prompt.trim(),
+  })
+  
+  // Create DuckDB table from JSON
+  const tableResult = await createTableFromJSON({
+    data: {
+      data: result.data,
+      tableName: result.tableName,
+    },
+  })
+  
+  // Update file record
+  await updateDuckDBInfo({
+    fileId: result.fileId,
+    tableName: tableResult.tableName,
+  })
+}
+```
+
+</CodeGroup>
+
+## Implementation Details
+
+The upload flow is implemented in `FileUpload.tsx` and follows this architecture:
+
+### File Processing Pipeline
+
+<Steps>
+  <Step title="Upload to Storage">
+    Files are uploaded to Cloudflare R2 using the Convex R2 component:
+    ```tsx
+    const uploadFile = useUploadFile(api.r2)
+    const storageId = await uploadFile(file)
+    ```
+  </Step>
+  
+  <Step title="Save Metadata">
+    File metadata is saved to Convex database:
+    ```tsx
+    const fileId = await saveFile({
+      storageId,
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+    })
+    ```
+  </Step>
+  
+  <Step title="Create DuckDB Table">
+    CSV files are processed into queryable DuckDB tables:
+    ```tsx
+    const result = await createTableFromCSV({
+      data: { csvUrl, tableName }
+    })
+    ```
+  </Step>
+  
+  <Step title="Link Table to File">
+    The DuckDB table name is linked back to the file record:
+    ```tsx
+    await updateDuckDBInfo({
+      fileId,
+      tableName: result.tableName,
+    })
+    ```
+  </Step>
+</Steps>
+
+## Usage Patterns
+
+### Basic CSV Upload
+
+```tsx
+<FileUpload 
+  onUploadComplete={() => {
+    // Refresh table list
+    // Navigate to new table
+  }} 
+/>
+```
+
+### URL Extraction with Custom Prompt
+
+For URL extraction, craft descriptive prompts:
+
+<CodeGroup>
+
+```txt E-commerce Example
+Extract all product information including name, price, 
+description, availability status, and customer ratings
+```
+
+```txt News Articles
+Extract article headlines, publication dates, authors, 
+categories, and full text content from this news page
+```
+
+```txt Tables/Lists
+Extract the table data showing company names, revenue, 
+employee count, and industry sectors
+```
+
+</CodeGroup>
+
+## Progress Tracking
+
+The upload component provides real-time progress feedback:
+
+```tsx
+{uploading && (
+  <Box mt="md">
+    <Text size="sm" mb="xs">
+      Uploading... {uploadProgress}%
+    </Text>
+    <Progress value={uploadProgress} animated />
+  </Box>
+)}
+```
+
+Progress stages:
+- **20%**: File uploaded to R2
+- **50-65%**: Metadata saved
+- **85-95%**: DuckDB table created
+- **100%**: Complete
+
+## Advanced Tips
+
+<AccordionGroup>
+  <Accordion title="Table Naming Convention">
+    Table names are automatically generated from filenames:
+    ```tsx
+    const tableName = file.name
+      .replace(/\.csv$/i, '')
+      .replace(/[^a-zA-Z0-9_]/g, '_')
+      .toLowerCase()
+    ```
+    Example: `Sales Data 2024.csv` → `sales_data_2024`
+  </Accordion>
+  
+  <Accordion title="Handling Large Files">
+    Files up to 10MB are supported. For larger datasets:
+    - Split into multiple files
+    - Use URL extraction with pagination
+    - Consider direct DuckDB import (see Architecture docs)
+  </Accordion>
+  
+  <Accordion title="Error Recovery">
+    If DuckDB table creation fails:
+    ```tsx
+    catch (duckdbError) {
+      // File is still uploaded and accessible
+      // Table creation can be retried
+      notifications.show({
+        title: 'Warning',
+        message: 'File uploaded but table creation failed',
+        color: 'yellow',
+      })
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Use Cases
+
+### Uploading Sales Data
+
+1. Prepare your CSV with clean column headers
+2. Drag and drop the file into the upload zone
+3. Wait for processing (typically 5-15 seconds)
+4. Start querying immediately
+
+### Extracting Web Data
+
+1. Find a webpage with structured data
+2. Click the **From URL** tab
+3. Paste the URL
+4. Write a clear extraction prompt
+5. Click **Extract Data & Create Table**
+
+### Batch Uploads
+
+You can upload multiple files at once:
+
+```tsx
+<Dropzone
+  onDrop={handleDrop}
+  maxSize={10 * 1024 ** 2}
+  accept={[MIME_TYPES.csv, MIME_TYPES.xlsx, MIME_TYPES.xls]}
+>
+  {/* Multiple files are processed sequentially */}
+</Dropzone>
+```
+
+## API Integration
+
+The upload feature integrates with these Convex APIs:
+
+- `api.r2` - R2 storage operations (from `/home/daytona/workspace/source/src/components/dashboard/FileUpload.tsx:131)
+- `api.csv.saveFile` - Save file metadata (from `/home/daytona/workspace/source/src/components/dashboard/FileUpload.tsx:35)
+- `api.csv.updateDuckDBInfo` - Link table to file (from `/home/daytona/workspace/source/src/components/dashboard/FileUpload.tsx:38)
+- `api.csv.createTableFromURL` - URL extraction (from `/home/daytona/workspace/source/src/components/dashboard/FileUpload.tsx:41)
+
+For more details, see the [API Reference](/api/overview).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Your Data" icon="magnifying-glass" href="/features/query-editor">
+    Learn how to write SQL queries against your uploaded data
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/features/ai-agents">
+    Use AI agents to analyze and query your data automatically
+  </Card>
+</CardGroup>

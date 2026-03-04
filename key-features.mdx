@@ -1,0 +1,1146 @@
+---
+title: Key Features
+description: Explore Meridian's 10 core features with real examples, code snippets, and implementation details
+---
+
+# Key Features
+
+Meridian combines real-time collaboration, AI reasoning, and high-performance analytics into a single platform. This guide explores all 10 core features with real implementation details from the codebase.
+
+<Info>
+  Each feature below includes **actual code snippets** from Meridian's source. You'll see exactly how features work under the hood.
+</Info>
+
+---
+
+## 1. Live-Time Collaboration
+
+**See teammates' work in real-time. No refresh needed.**
+
+Powered by [Convex real-time subscriptions](https://docs.convex.dev/using/queries), Meridian delivers instant updates when anyone on your team:
+- Executes a query
+- Generates insights
+- Creates a chart
+- Asks the AI agent a question
+
+### How It Works
+
+```typescript
+// From TableNotifications.tsx - real-time notification subscription
+const notifications = useQuery(api.notifications.getNotifications, {
+  tableName,
+})
+
+useEffect(() => {
+  if (!notifications || notifications.length === 0) return
+
+  const latestNotification = notifications[0]
+  
+  // Skip your own notifications
+  if (latestNotification.userId === currentUserId) return
+
+  // Show toast for teammate activity
+  notifications.show({
+    title: latestNotification.userName || 'A teammate',
+    message: latestNotification.message,
+    icon: getIconForType(latestNotification.type),
+  })
+}, [notifications])
+```
+
+**Notification types:**
+- `query`: SQL query executed
+- `agent_query`: AI agent generated SQL
+- `agent_analysis`: AI agent performed analysis
+- `insights_generated`: New insights discovered
+- `chart_created`: Interactive chart added
+
+### Schema
+
+```typescript
+// From schema.ts - notifications table
+notifications: defineTable({
+  tableName: v.string(),
+  userId: v.string(),
+  userName: v.optional(v.string()),
+  userImage: v.optional(v.string()),
+  type: v.union(
+    v.literal('query'),
+    v.literal('agent_query'),
+    v.literal('agent_analysis'),
+    v.literal('insights_generated'),
+    v.literal('chart_created'),
+  ),
+  message: v.string(),
+  metadata: v.optional(v.any()),
+  createdAt: v.number(),
+})
+  .index('by_tableName', ['tableName'])
+  .index('by_tableName_createdAt', ['tableName', 'createdAt'])
+```
+
+<Tip>
+  Notifications are scoped per table. Only users viewing the same table see each other's activity.
+</Tip>
+
+### Broadcasting Activity
+
+```typescript
+// From table.$table.tsx - broadcast when executing queries
+const queryPreview = query.length > 50 
+  ? query.substring(0, 50) + '...' 
+  : query
+
+await broadcastNotification({
+  tableName: table,
+  type: 'query',
+  message: `executed a query: ${queryPreview}`,
+  metadata: { query, resultMetadata },
+})
+```
+
+**Result**: Everyone viewing the table sees "Alice executed a query: SELECT * FROM sales..." in real-time.
+
+---
+
+## 2. Streaming Agent Reasoning
+
+**Watch AI agents think step-by-step as they work.**
+
+Unlike black-box AI tools, Meridian streams the agent's reasoning in real-time. You see:
+- Each tool being called ("Querying database...", "Creating chart...")
+- Tool results as they return
+- Natural language explanations streaming token-by-token
+
+### Two Agent Modes
+
+```typescript
+// From table_agent.ts - specialized agents
+const query_agent = new Agent(components.agent, {
+  name: 'Query Agent',
+  languageModel: model, // Gemini 2.5 Flash
+  instructions: `You write DuckDB SQL queries. Output JSON with {commands, description}.`,
+  maxSteps: 4,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    getSampleRows,
+    createChart,
+    generateInsights,
+  },
+})
+
+const analysis_agent = new Agent(components.agent, {
+  name: 'Analysis Agent',
+  languageModel: model,
+  instructions: `You explore and analyze databases. Use tools to answer questions.`,
+  maxSteps: 6,
+  tools: {
+    queryDuckDB,
+    getTableSchema,
+    createChart,
+    firecrawlSearch,    // Search the web
+    scrapeWebPage,      // Extract from URLs
+    analyzeDataQuality, // Check for nulls, duplicates
+    compareTables,      // Compare two tables
+  },
+})
+```
+
+### Streaming Analysis
+
+```typescript
+// From table_agent.ts - stream text and tool steps
+const stream = await analysis_agent.streamText(ctx, threadReference, {
+  prompt: contextualPrompt,
+})
+
+let assistantText = ''
+const toolSteps: Array<{
+  tool: string
+  args: any
+  result?: any
+  finished: boolean
+}> = []
+
+for await (const st_part of stream.fullStream) {
+  if (st_part.type === 'tool-call') {
+    // Agent is calling a tool
+    toolSteps.push({
+      tool: st_part.toolName,
+      args: st_part.input,
+      finished: false,
+    })
+    await updateMessageWithToolSteps()
+  }
+
+  if (st_part.type === 'tool-result') {
+    // Tool returned a result
+    const stepIndex = findStepIndex(st_part.toolCallId)
+    toolSteps[stepIndex].result = st_part.output
+    toolSteps[stepIndex].finished = true
+    await updateMessageWithToolSteps()
+  }
+
+  if (st_part.type === 'text-delta') {
+    // Stream natural language explanation
+    assistantText += st_part.text
+    await updateMessage({ content: assistantText })
+  }
+}
+```
+
+**Result**: Users see each tool call appear in real-time, like watching a developer work in a terminal.
+
+### Example Agent Response
+
+User asks: **"What are the sales trends?"**
+
+Agent reasoning stream:
+
+```
+🔧 queryDuckDB({ query: "SELECT date, SUM(revenue) FROM sales GROUP BY date" })
+   ✅ Found 365 rows
+
+🔧 createChart({ type: "line", title: "Daily Revenue", ... })
+   ✅ Chart created: line_chart_1234
+
+📝 "Based on the data, revenue shows a clear upward trend from January through December,
+    with a notable spike in Q4. The average daily revenue is $12,450, with peaks reaching
+    $28,000 during Black Friday week..."
+```
+
+<Note>
+  Tool steps are stored in the database so you can replay agent reasoning later.
+</Note>
+
+---
+
+## 3. Live-Updating Charts
+
+**Charts automatically refresh when data changes.**
+
+Meridian's charts aren't static exports. They're **reactive visualizations** that re-execute their queries whenever the underlying data changes.
+
+### Chart Re-Execution
+
+```typescript
+// From table.$table.tsx - re-execute chart queries on data change
+useEffect(() => {
+  const currentDataVersion = JSON.stringify({
+    rowCount: data.rows.length,
+    columnCount: data.columns.length,
+    sampleHash: JSON.stringify(data.rows.slice(0, 3)),
+  })
+
+  if (previousDataVersionRef.current === currentDataVersion) {
+    return // No change, skip
+  }
+
+  previousDataVersionRef.current = currentDataVersion
+
+  // Re-execute all chart queries in parallel
+  const chartsWithQueries = charts.filter(chart => chart.config.query)
+
+  const updatedCharts = await Promise.all(
+    chartsWithQueries.map(async (chart) => {
+      const result = await queryDuckDB({ data: chart.config.query })
+      const parsed = JSON.parse(result)
+      
+      // Return updated chart with fresh data
+      return {
+        ...chart,
+        config: {
+          ...chart.config,
+          data: parsed.rows,
+        },
+      }
+    })
+  )
+
+  setCharts(updatedCharts)
+}, [data])
+```
+
+### Supported Chart Types
+
+```typescript
+// From ChartCanvas.tsx - chart rendering
+interface ChartConfig {
+  type: 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'scatter'
+  title: string
+  data: any[]
+  dataKey: string
+  xAxisKey: string
+  yAxisKey: string
+  series?: Array<{ name: string; color: string }>
+  query?: string  // Stored query for re-execution
+}
+```
+
+**Example chart creation:**
+
+```typescript
+// Agent calls createChart tool
+await createChart({
+  chartType: 'bar',
+  title: 'Revenue by Product',
+  query: 'SELECT product, SUM(revenue) FROM sales GROUP BY product',
+  xAxis: 'product',
+  yAxis: 'revenue',
+})
+
+// Result:
+{
+  type: 'bar',
+  title: 'Revenue by Product',
+  data: [
+    { product: 'Widget A', revenue: 125000 },
+    { product: 'Widget B', revenue: 98000 },
+  ],
+  query: 'SELECT product, SUM(revenue) FROM sales GROUP BY product',
+}
+```
+
+### Draggable Canvas
+
+Charts render on a draggable canvas using pointer events:
+
+```typescript
+// From ChartCanvas.tsx - drag implementation
+const handlePointerMove = (e: PointerEvent) => {
+  const canvasRect = canvasRef.current.getBoundingClientRect()
+  const localX = e.clientX - canvasRect.left - offset.x
+  const localY = e.clientY - canvasRect.top - offset.y
+
+  const newPos = constrainPosition({ x: localX, y: localY })
+  setPosition(newPos)
+  onMove?.(newPos)
+}
+```
+
+<Tip>
+  Multiple charts can be arranged on the canvas. Positions are preserved even when data updates.
+</Tip>
+
+---
+
+## 4. Query Reproducibility
+
+**Every analysis is logged with full context.**
+
+Meridian tracks every query executed, who ran it, when, and what the results were. This enables:
+- Auditing: "Who changed this data?"
+- Rollback: "Restore to yesterday's state"
+- Learning: "How did we discover this insight?"
+
+### Query Logging
+
+```typescript
+// From table.$table.tsx - automatic query logging
+const startTime = Date.now()
+
+try {
+  const result = await queryDuckDB({ data: query })
+  const executionTime = Date.now() - startTime
+
+  const parsed = JSON.parse(result)
+  const resultMetadata = {
+    rowCount: parsed.rows?.length,
+    columnCount: parsed.columns?.length,
+    executionTimeMs: executionTime,
+  }
+
+  // Log successful query
+  await logQuery({
+    query,
+    tableName: table,
+    success: true,
+    resultMetadata,
+  })
+} catch (err) {
+  const executionTime = Date.now() - startTime
+
+  // Log failed query
+  await logQuery({
+    query,
+    tableName: table,
+    success: false,
+    error: err.message,
+    resultMetadata: { executionTimeMs: executionTime },
+  })
+}
+```
+
+### Query Log Schema
+
+```typescript
+// From schema.ts - queryLog table
+queryLog: defineTable({
+  query: v.string(),
+  executedAt: v.number(),
+  userId: v.string(),
+  tableName: v.string(),
+  success: v.boolean(),
+  error: v.optional(v.string()),
+  sequenceNumber: v.number(),  // For ordering
+  resultMetadata: v.optional(v.object({
+    rowCount: v.optional(v.number()),
+    columnCount: v.optional(v.number()),
+    executionTimeMs: v.optional(v.number()),
+  })),
+})
+  .index('by_userId', ['userId'])
+  .index('by_sequenceNumber', ['sequenceNumber'])
+  .index('by_tableName', ['tableName'])
+  .index('by_userId_tableName', ['userId', 'tableName'])
+```
+
+### Viewing History
+
+Click the **History** tab to see all queries:
+
+```typescript
+// From TableSidebar.tsx - query history view
+const queryHistory = useQuery(api.queryLog.getQueryHistory, {
+  tableName,
+  limit: 50,
+})
+
+queryHistory?.map(log => (
+  <Paper key={log._id}>
+    <Text size="xs">{log.query}</Text>
+    <Group>
+      <Badge color={log.success ? 'green' : 'red'}>
+        {log.success ? 'Success' : 'Failed'}
+      </Badge>
+      <Text size="xs">{log.resultMetadata?.rowCount} rows</Text>
+      <Text size="xs">{log.resultMetadata?.executionTimeMs}ms</Text>
+    </Group>
+  </Paper>
+))
+```
+
+<Warning>
+  Rollback is experimental. It replays queries from the beginning to recreate state. For production use, consider snapshotting.
+</Warning>
+
+---
+
+## 5. Vectorized OLAP Analytics
+
+**DuckDB powers instant queries on millions of rows.**
+
+Meridian uses [DuckDB's Node API](https://duckdb.org/docs/api/nodejs/overview) (not WASM) for server-side query execution. This delivers:
+- **10x faster** queries compared to browser WASM
+- **No memory limits** imposed by browsers
+- **Columnar storage** optimized for analytical workloads
+
+### Server-Side Execution
+
+```typescript
+// From duckdb.ts - TanStack Start server function
+import { createServerFn } from '@tanstack/start'
+import * as duckdb from '@duckdb/node-api'
+
+export const queryDuckDB = createServerFn({ method: 'POST' })
+  .validator((data: unknown) => {
+    if (typeof data !== 'string') {
+      throw new Error('Query must be a string')
+    }
+    return data as string
+  })
+  .handler(async ({ data: query }) => {
+    const db = await duckdb.Database.create(':memory:')
+    const conn = await db.connect()
+
+    try {
+      // Execute query
+      const result = await conn.run(query)
+      const rows = await result.getRows()
+      const columns = result.columnNames().map((name, idx) => ({
+        name,
+        type: result.columnTypes()[idx],
+      }))
+
+      return JSON.stringify({ columns, rows })
+    } finally {
+      await conn.close()
+      await db.close()
+    }
+  })
+```
+
+### Performance Benefits
+
+**Vectorized operations:**
+DuckDB processes data in batches (vectors) instead of row-by-row, using SIMD instructions:
+
+```sql
+-- This query processes 1M rows in ~50ms
+SELECT 
+  region,
+  COUNT(*) as order_count,
+  SUM(revenue) as total_revenue,
+  AVG(revenue) as avg_revenue,
+  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY revenue) as p95_revenue
+FROM sales
+GROUP BY region
+ORDER BY total_revenue DESC
+```
+
+**Columnar storage:**
+DuckDB stores data by column, enabling:
+- Efficient aggregations (read only needed columns)
+- Better compression (similar values together)
+- Cache-friendly access patterns
+
+<Info>
+  DuckDB is used by [Google Colab](https://colab.research.google.com), [Observable](https://observablehq.com), and [Motherduck](https://motherduck.com) for production analytics.
+</Info>
+
+### Loading CSV from R2
+
+```typescript
+// From duckdb.ts - load CSV from Cloudflare R2
+export const createTableFromCSV = createServerFn({ method: 'POST' })
+  .handler(async ({ data: { csvUrl, tableName } }) => {
+    const db = await duckdb.Database.create(':memory:')
+    const conn = await db.connect()
+
+    try {
+      // DuckDB can read CSV directly from HTTPS URLs
+      await conn.run(`
+        CREATE TABLE ${tableName} AS 
+        SELECT * FROM read_csv('${csvUrl}', auto_detect=true)
+      `)
+
+      const countResult = await conn.run(`SELECT COUNT(*) as count FROM ${tableName}`)
+      const rowCount = (await countResult.getRows())[0].count
+
+      return { tableName, rowCount }
+    } finally {
+      await conn.close()
+      await db.close()
+    }
+  })
+```
+
+---
+
+## 6. AI-Powered Insights
+
+**Automatically discover patterns, outliers, and trends.**
+
+Meridian combines DuckDB's statistical functions with Gemini AI's interpretation to generate actionable insights.
+
+### Two-Stage Analysis
+
+**Stage 1: Statistical queries (DuckDB)**
+
+```typescript
+// From duckdbAnalytics.ts - automated statistical analysis
+export async function analyzeTableWithDuckDB(
+  tableName: string,
+  query: string,
+  columns: Array<{ name: string; type: string }>,
+) {
+  const analyses = []
+
+  for (const col of columns) {
+    if (isNumericColumn(col)) {
+      // Compute summary statistics
+      const stats = await queryDuckDB({
+        data: `
+          SELECT 
+            MIN(${col.name}) as min,
+            MAX(${col.name}) as max,
+            AVG(${col.name}) as mean,
+            MEDIAN(${col.name}) as median,
+            STDDEV(${col.name}) as stddev,
+            COUNT(DISTINCT ${col.name}) as distinct_count,
+            COUNT(*) FILTER (WHERE ${col.name} IS NULL) as null_count
+          FROM (${query})
+        `,
+      })
+
+      // Detect outliers using IQR method
+      const outliers = await queryDuckDB({
+        data: `
+          WITH stats AS (
+            SELECT 
+              PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${col.name}) as q1,
+              PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${col.name}) as q3
+            FROM (${query})
+          )
+          SELECT * FROM (${query})
+          WHERE ${col.name} < (SELECT q1 - 1.5 * (q3 - q1) FROM stats)
+             OR ${col.name} > (SELECT q3 + 1.5 * (q3 - q1) FROM stats)
+        `,
+      })
+
+      analyses.push({
+        column: col.name,
+        type: 'numeric',
+        stats: JSON.parse(stats),
+        outliers: JSON.parse(outliers),
+      })
+    }
+  }
+
+  return analyses
+}
+```
+
+**Stage 2: AI interpretation (Gemini)**
+
+```typescript
+// From insights.ts - generate insights from statistical findings
+export const generateInsights = action({
+  args: {
+    tableName: v.string(),
+    query: v.string(),
+    statisticalAnalyses: v.any(),
+    rowCount: v.number(),
+    columnCount: v.number(),
+    forceRefresh: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { tableName, statisticalAnalyses, forceRefresh }) => {
+    // Check cache first
+    const cacheKey = hashData(tableName, statisticalAnalyses)
+    const cached = await ctx.runQuery(api.insights.getCachedInsights, { cacheKey })
+    
+    if (cached && !forceRefresh) {
+      return { insights: cached.insights, statisticalFindings: cached.statisticalFindings }
+    }
+
+    // Call Gemini to interpret findings
+    const prompt = `
+Analyze these statistical findings and provide actionable insights:
+
+${JSON.stringify(statisticalAnalyses, null, 2)}
+
+For each pattern, outlier, or trend you find, output:
+- title: Brief summary
+- description: Detailed explanation
+- type: outlier|trend|aggregation|pattern|anomaly
+- severity: low|medium|high
+`
+
+    const response = await generateObject({
+      model: google_gemini.languageModel('gemini-2.5-flash'),
+      prompt,
+      schema: z.object({
+        insights: z.array(z.object({
+          title: z.string(),
+          description: z.string(),
+          type: z.enum(['outlier', 'trend', 'aggregation', 'pattern', 'anomaly']),
+          severity: z.enum(['low', 'medium', 'high']),
+        })),
+      }),
+    })
+
+    // Cache results
+    await ctx.runMutation(api.insights.cacheInsights, {
+      cacheKey,
+      tableName,
+      insights: response.object.insights,
+      statisticalFindings: statisticalAnalyses,
+    })
+
+    return { insights: response.object.insights, statisticalFindings: statisticalAnalyses }
+  },
+})
+```
+
+### Example Insights
+
+```json
+[
+  {
+    "title": "High null percentage in email column",
+    "description": "54% of rows have null email values, which may impact customer communication. Consider backfilling from secondary sources or updating collection forms.",
+    "type": "anomaly",
+    "severity": "high"
+  },
+  {
+    "title": "Revenue outliers detected",
+    "description": "15 transactions have revenue values >$50,000, which is 3.2 standard deviations above the mean. These may be enterprise deals or data entry errors.",
+    "type": "outlier",
+    "severity": "medium"
+  },
+  {
+    "title": "Strong correlation between marketing_spend and revenue",
+    "description": "Correlation coefficient of 0.87 suggests marketing campaigns are driving sales effectively. R² = 0.76 indicates 76% of revenue variance is explained by spend.",
+    "type": "pattern",
+    "severity": "low"
+  }
+]
+```
+
+<Tip>
+  Insights are cached per query. Click **Refresh** in the Insights panel to regenerate with fresh AI analysis.
+</Tip>
+
+---
+
+## 7. Firecrawl Integration
+
+**Turn any URL into structured data.**
+
+Meridian integrates [Firecrawl](https://firecrawl.dev) to extract, scrape, and search web content, then convert it to CSV tables.
+
+### Agent Tools
+
+The analysis agent has access to three Firecrawl tools:
+
+```typescript
+// From agent_tools.ts - web extraction tools
+export const firecrawlSearch = {
+  description: "Search the web using Firecrawl and return relevant results",
+  parameters: z.object({
+    query: z.string().describe("Search query"),
+    maxResults: z.number().optional().describe("Max results to return (default 10)"),
+  }),
+  execute: async (ctx, { query, maxResults = 10 }) => {
+    return await ctx.runAction(api.table_agent.performFirecrawlSearch, {
+      query,
+      maxResults,
+    })
+  },
+}
+
+export const scrapeWebPage = {
+  description: "Scrape a single web page and extract its content",
+  parameters: z.object({
+    url: z.string().describe("URL to scrape"),
+    includeMarkdown: z.boolean().optional(),
+  }),
+  execute: async (ctx, { url, includeMarkdown = true }) => {
+    return await ctx.runAction(api.table_agent.scrapeWebPageAction, {
+      url,
+      includeMarkdown,
+    })
+  },
+}
+
+export const extractWebPage = {
+  description: "Extract structured data from web pages using a prompt",
+  parameters: z.object({
+    urls: z.array(z.string()).describe("URLs to extract from"),
+    prompt: z.string().describe("What to extract"),
+    schema: z.any().optional().describe("Optional schema for structured output"),
+  }),
+  execute: async (ctx, { urls, prompt, schema }) => {
+    return await ctx.runAction(api.table_agent.extractWebPageAction, {
+      urls,
+      prompt,
+      schema,
+    })
+  },
+}
+```
+
+### Example: Extract Product Data
+
+User asks: **"Extract all products from https://example.com/catalog"**
+
+Agent response:
+
+```
+🔧 extractWebPage({
+  urls: ["https://example.com/catalog"],
+  prompt: "Extract product names, prices, and descriptions",
+})
+
+✅ Extracted 42 products:
+[
+  { name: "Widget A", price: "$29.99", description: "Premium widget..." },
+  { name: "Widget B", price: "$19.99", description: "Budget widget..." },
+  ...
+]
+
+🔧 createTableFromJSON({
+  tableName: "example_products",
+  data: [...],
+})
+
+✅ Created table with 42 rows
+```
+
+<Info>
+  Firecrawl handles JavaScript rendering, rate limiting, and anti-bot measures automatically.
+</Info>
+
+---
+
+## 8. Data Quality Analysis
+
+**Automatically detect nulls, duplicates, and data issues.**
+
+Meridian includes a `analyzeDataQuality` agent tool that runs comprehensive checks:
+
+```typescript
+// From table_agent.ts - data quality action
+export const analyzeDataQualityAction = action({
+  args: { tableName: v.string() },
+  handler: async (ctx, { tableName }) => {
+    const issues = []
+
+    // Get schema
+    const schemaResult = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: `DESCRIBE ${tableName}`,
+    })
+
+    const columns = schemaResult.rows
+
+    for (const col of columns) {
+      const colName = col.column_name
+      const colType = col.column_type
+
+      // Check for high null percentage
+      const nullCheck = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+        query: `
+          SELECT 
+            COUNT(*) as total,
+            COUNT(${colName}) as non_null
+          FROM ${tableName}
+        `,
+      })
+
+      const total = nullCheck.rows[0].total
+      const nonNull = nullCheck.rows[0].non_null
+      const nullPercent = ((total - nonNull) / total) * 100
+
+      if (nullPercent > 50) {
+        issues.push({
+          column: colName,
+          issue: 'High null percentage',
+          severity: 'high',
+          details: `${nullPercent.toFixed(1)}% of values are null`,
+        })
+      }
+
+      // Check for duplicates in ID columns
+      if (colName.toLowerCase().includes('id')) {
+        const dupCheck = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+          query: `
+            SELECT ${colName}, COUNT(*) as cnt
+            FROM ${tableName}
+            GROUP BY ${colName}
+            HAVING COUNT(*) > 1
+            LIMIT 10
+          `,
+        })
+
+        if (dupCheck.rows.length > 0) {
+          issues.push({
+            column: colName,
+            issue: 'Duplicate values found',
+            severity: 'high',
+            details: `Found ${dupCheck.rows.length} duplicate values`,
+          })
+        }
+      }
+
+      // Check for empty strings
+      if (colType.includes('VARCHAR') || colType.includes('TEXT')) {
+        const emptyCheck = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+          query: `
+            SELECT COUNT(*) as empty_count
+            FROM ${tableName}
+            WHERE ${colName} = '' OR ${colName} IS NULL
+          `,
+        })
+
+        const emptyCount = emptyCheck.rows[0].empty_count
+        if (emptyCount > 0) {
+          issues.push({
+            column: colName,
+            issue: 'Empty string values',
+            severity: 'low',
+            details: `Found ${emptyCount} empty or null values`,
+          })
+        }
+      }
+    }
+
+    // Calculate quality score
+    const qualityScore = Math.max(
+      0,
+      100 - issues.length * 10 - issues.filter(i => i.severity === 'high').length * 20
+    )
+
+    return {
+      success: true,
+      tableName,
+      rowCount: total,
+      columnCount: columns.length,
+      issues,
+      issueCount: issues.length,
+      qualityScore,
+    }
+  },
+})
+```
+
+**Usage:**
+
+User asks: **"Check data quality for this table"**
+
+Agent calls `analyzeDataQuality` and returns:
+
+```json
+{
+  "tableName": "sales_2024",
+  "rowCount": 15420,
+  "columnCount": 8,
+  "issues": [
+    {
+      "column": "email",
+      "issue": "High null percentage",
+      "severity": "high",
+      "details": "54.2% of values are null"
+    },
+    {
+      "column": "customer_id",
+      "issue": "Duplicate values found",
+      "severity": "high",
+      "details": "Found 8 duplicate values"
+    }
+  ],
+  "qualityScore": 60
+}
+```
+
+---
+
+## 9. Multi-Table Comparison
+
+**Compare schemas and data across tables.**
+
+The `compareTables` tool helps analyze differences between datasets:
+
+```typescript
+// From agent_tools.ts - table comparison
+export const compareTables = {
+  description: "Compare two tables and return schema and data differences",
+  parameters: z.object({
+    table1: z.string(),
+    table2: z.string(),
+  }),
+  execute: async (ctx, { table1, table2 }) => {
+    // Get schemas
+    const schema1 = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: `DESCRIBE ${table1}`,
+    })
+    const schema2 = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: `DESCRIBE ${table2}`,
+    })
+
+    // Compare column names
+    const cols1 = schema1.rows.map(r => r.column_name)
+    const cols2 = schema2.rows.map(r => r.column_name)
+    const onlyIn1 = cols1.filter(c => !cols2.includes(c))
+    const onlyIn2 = cols2.filter(c => !cols1.includes(c))
+    const common = cols1.filter(c => cols2.includes(c))
+
+    // Get row counts
+    const count1 = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: `SELECT COUNT(*) as count FROM ${table1}`,
+    })
+    const count2 = await ctx.runAction(api.table_agent.fetchDuckDBQuery, {
+      query: `SELECT COUNT(*) as count FROM ${table2}`,
+    })
+
+    return {
+      success: true,
+      table1: { name: table1, rowCount: count1.rows[0].count, columns: cols1 },
+      table2: { name: table2, rowCount: count2.rows[0].count, columns: cols2 },
+      columnsOnlyIn1: onlyIn1,
+      columnsOnlyIn2: onlyIn2,
+      commonColumns: common,
+    }
+  },
+}
+```
+
+---
+
+## 10. Command Palette
+
+**Quick access to files, tables, and actions.**
+
+Press **Ctrl+K** (Cmd+K on Mac) to open the command palette:
+
+```typescript
+// From dashboard.tsx - spotlight/command palette
+const [searchOpened, setSearchOpened] = useState(false)
+const [searchQuery, setSearchQuery] = useState('')
+
+useEffect(() => {
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      setSearchOpened(opened => !opened)
+    }
+    if (event.key === 'Escape') {
+      setSearchOpened(false)
+    }
+  }
+  window.addEventListener('keydown', handleKeyDown)
+  return () => window.removeEventListener('keydown', handleKeyDown)
+}, [])
+
+const spotlightActions = [
+  { label: 'Upload File', icon: <IconUpload />, onClick: () => setUploadModalOpened(true) },
+  { label: 'View Docs', icon: <IconBook />, onClick: () => window.open('/docs') },
+  ...files.map(file => ({
+    label: file.fileName,
+    icon: <IconFile />,
+    onClick: () => window.open(`/table/${file.duckdbTableName}`),
+  })),
+]
+```
+
+**Features:**
+- Fuzzy search across files and tables
+- Quick actions (upload, search, docs)
+- Keyboard navigation (arrow keys + Enter)
+- Recent items at the top
+
+---
+
+## Additional Features
+
+<AccordionGroup>
+  <Accordion title="Thread-Based Agent Conversations">
+    Agent conversations are organized into threads (like ChatGPT). Each thread:
+    - Has a unique ID stored in `agentThreads` table
+    - Preserves full message history with tool steps
+    - Can be switched between query and analysis modes
+    - Shows last message summary in the thread list
+
+    ```typescript
+    // From schema.ts
+    agentThreads: defineTable({
+      userId: v.string(),
+      tableName: v.string(),
+      agentThreadId: v.string(),
+      agentName: v.string(),
+      title: v.optional(v.string()),
+      createdAt: v.number(),
+      lastMessageAt: v.number(),
+      lastMessageSummary: v.optional(v.string()),
+      lastMode: v.optional(v.union(v.literal('query'), v.literal('analysis'))),
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="Presence API">
+    Meridian uses Convex's presence component to show who's currently viewing each table:
+
+    ```typescript
+    // From table.$table.tsx
+    const { set: setPresence } = usePresence(table)
+
+    useEffect(() => {
+      setPresence({ 
+        userId: user.userId,
+        userName: user.name,
+        lastSeen: Date.now(),
+      })
+    }, [])
+    ```
+
+    This enables "Alice is viewing this table" indicators.
+  </Accordion>
+
+  <Accordion title="Pagination Controls">
+    Large result sets are paginated automatically:
+
+    ```typescript
+    // From table.$table.tsx
+    const [pageSize, setPageSize] = useState(50)
+    const [pageIndex, setPageIndex] = useState(0)
+
+    const paginatedRows = useMemo(() => {
+      const start = pageIndex * pageSize
+      const end = start + pageSize
+      return data.rows.slice(start, end)
+    }, [data.rows, pageIndex, pageSize])
+    ```
+
+    Users can change page size (25/50/100/200) and navigate with prev/next buttons.
+  </Accordion>
+
+  <Accordion title="Column Visibility Toggle">
+    Hide/show columns from the columns menu:
+
+    ```typescript
+    // From TableHeader.tsx
+    <Menu>
+      <Menu.Label>Show/Hide Columns</Menu.Label>
+      {columns.map(col => (
+        <Menu.Item
+          key={col.name}
+          rightSection={columnVisibility[col.name] ? <IconCheck /> : null}
+          onClick={() => setColumnVisibility({
+            ...columnVisibility,
+            [col.name]: !columnVisibility[col.name],
+          })}
+        >
+          {col.name}
+        </Menu.Item>
+      ))}
+    </Menu>
+    ```
+
+    Useful for wide tables with 50+ columns.
+  </Accordion>
+
+  <Accordion title="Statistical Findings Panel">
+    Auto-generated stats for every query:
+
+    - Min/max/mean/median/stddev for numeric columns
+    - Frequency distributions for categorical columns
+    - Null counts and percentages
+    - Outlier detection using IQR method
+
+    Findings are computed using DuckDB's analytical functions and displayed in the **Statistics** tab.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Coming Soon
+
+<CardGroup cols={2}>
+  <Card title="Git-Like Branching" icon="code-branch">
+    Create branches of your data, make changes, and merge back. Perfect for testing transformations before committing.
+  </Card>
+  <Card title="Scheduled Queries" icon="clock">
+    Run queries on a schedule (daily, hourly) and get notifications when results change.
+  </Card>
+  <Card title="Export to CSV/Parquet" icon="download">
+    Download query results in multiple formats for use in external tools.
+  </Card>
+  <Card title="API Access" icon="code">
+    Query your tables via REST API with authentication tokens.
+  </Card>
+</CardGroup>
+
+---
+
+## Summary
+
+Meridian's 10 key features combine to create a platform that's:
+- **Fast**: DuckDB OLAP + server-side execution
+- **Collaborative**: Real-time updates via Convex
+- **Transparent**: Full query logs and agent reasoning
+- **Intelligent**: AI-powered insights and chart generation
+- **Flexible**: Natural language or SQL, your choice
+
+<Tip>
+  Explore the [Quickstart guide](/quickstart) to try all these features hands-on in 5 minutes.
+</Tip>

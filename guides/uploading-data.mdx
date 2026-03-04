@@ -1,0 +1,205 @@
+---
+title: 'Uploading Data'
+description: 'Learn how to import CSV files and extract data from URLs into Meridian'
+icon: 'upload'
+---
+
+Meridian makes it easy to bring your data into the platform for analysis. You can upload CSV files directly or extract structured data from web pages using our URL import feature.
+
+## Uploading CSV Files
+
+The most straightforward way to add data to Meridian is by uploading CSV files.
+
+<Steps>
+  <Step title="Navigate to Your Workspace">
+    Open Meridian and ensure you're logged in. Your uploaded files will be associated with your user account.
+  </Step>
+
+  <Step title="Select Your CSV File">
+    Click the upload button and select a CSV file from your computer. Meridian supports standard CSV format with headers.
+
+    **Supported formats:**
+    - `.csv` files with comma-separated values
+    - UTF-8 encoded files
+    - Files with header rows (column names)
+  </Step>
+
+  <Step title="Upload and Process">
+    Once uploaded, Meridian automatically:
+    - Stores your file securely in Cloudflare R2
+    - Creates a DuckDB table for fast querying
+    - Generates a unique table name
+    - Indexes the data for optimal performance
+
+    ```typescript
+    // Under the hood, Meridian saves file metadata
+    const fileId = await ctx.db.insert('files', {
+      storageId: args.storageId,
+      fileName: args.fileName,
+      fileType: args.fileType,
+      fileSize: args.fileSize,
+      uploadedBy: userId,
+      uploadedAt: Date.now(),
+    })
+    ```
+  </Step>
+
+  <Step title="View Your Data">
+    After processing completes, you'll see your data in a table view. The data is now ready for querying, analysis, and visualization.
+  </Step>
+</Steps>
+
+## Extracting Data from URLs
+
+Meridian can extract structured data from web pages using Firecrawl, making it easy to analyze online data without manual copying.
+
+<Steps>
+  <Step title="Enter the URL">
+    Instead of uploading a file, paste the URL of the webpage containing the data you want to analyze.
+  </Step>
+
+  <Step title="Describe What You Want">
+    Provide a natural language prompt describing the data you want to extract:
+
+    **Example prompts:**
+    - "Extract all job listings with title, company, and location"
+    - "Get product names and prices from this page"
+    - "List all articles with title, author, and publication date"
+  </Step>
+
+  <Step title="AI-Powered Extraction">
+    Meridian uses Firecrawl to:
+    - Scrape the webpage content
+    - Apply AI to understand the structure
+    - Extract data matching your description
+    - Convert it to structured JSON format
+
+    ```typescript
+    // Firecrawl extracts structured data based on your prompt
+    const firecrawl = new Firecrawl({ apiKey })
+    const extractResult = await firecrawl.extract({
+      urls: [args.url],
+      prompt: args.prompt,
+      schema: generatedSchema // Auto-generated from your prompt
+    })
+    ```
+  </Step>
+
+  <Step title="Data Loaded as Table">
+    The extracted data is automatically:
+    - Converted to tabular format
+    - Stored in DuckDB
+    - Made available for querying
+    - Tracked in your file list
+  </Step>
+</Steps>
+
+## File Management
+
+### Viewing Uploaded Files
+
+All your uploaded files and extracted datasets are tracked in Meridian. Each file record includes:
+
+- **File name** - Original name or generated name for URL extracts
+- **File type** - CSV, JSON, or other supported formats
+- **File size** - Size in bytes
+- **Upload date** - When the file was added
+- **DuckDB table name** - Internal table identifier for queries
+- **Processing status** - Whether DuckDB indexing is complete
+
+### Accessing File Data
+
+You can query your uploaded data immediately after processing:
+
+```typescript
+// Files are automatically made available for SQL queries
+const file = await ctx.db
+  .query('files')
+  .filter((q) => q.eq(q.field('uploadedBy'), userId))
+  .order('desc')
+  .collect()
+```
+
+### Deleting Files
+
+When you delete a file:
+- The file is removed from storage (R2)
+- The database record is deleted
+- The DuckDB table remains until you explicitly drop it
+
+## Data Storage Architecture
+
+Meridian uses a hybrid storage approach for optimal performance:
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare R2" icon="cloud">
+    Raw file storage for CSV and JSON files. Provides durable, cost-effective object storage.
+  </Card>
+  <Card title="DuckDB" icon="database">
+    Columnar analytical database for fast querying. Handles millions of rows with sub-second response times.
+  </Card>
+  <Card title="Convex" icon="bolt">
+    Real-time metadata storage. Tracks file information and enables live collaboration.
+  </Card>
+  <Card title="TanStack Start" icon="server">
+    Server-side processing. Runs DuckDB natively (not WASM) for maximum performance.
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Prepare Your CSV Files">
+    - Include a header row with descriptive column names
+    - Use consistent data types within each column
+    - Avoid special characters in column names (use underscores instead of spaces)
+    - Keep file sizes reasonable (under 100MB for optimal performance)
+    - Use UTF-8 encoding to prevent character issues
+  </Accordion>
+
+  <Accordion title="URL Extraction Tips">
+    - Be specific in your extraction prompts
+    - Test with a single page before extracting from multiple URLs
+    - Check the data quality after extraction
+    - URLs with dynamic content (JavaScript-rendered) work well with Firecrawl
+    - Include expected column names in your prompt for better results
+  </Accordion>
+
+  <Accordion title="Naming Conventions">
+    - Use descriptive file names that indicate the data contents
+    - For URL extracts, provide a custom table name if needed
+    - Table names are sanitized to remove special characters
+    - Avoid duplicate table names to prevent conflicts
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<Warning>
+  **Upload Failed?** Check that your CSV file:
+  - Is properly formatted with consistent delimiters
+  - Doesn't exceed size limits
+  - Has valid UTF-8 encoding
+  - Contains at least one row of data
+</Warning>
+
+<Warning>
+  **URL Extraction Not Working?** Ensure:
+  - The URL is accessible and public
+  - Your prompt clearly describes the data structure
+  - The page contains the data you're looking for
+  - Firecrawl API key is configured (contact admin if issues persist)
+</Warning>
+
+## What's Next?
+
+Now that your data is uploaded, you can:
+
+<CardGroup cols={2}>
+  <Card title="Query with SQL" icon="terminal" href="/guides/querying-with-sql">
+    Write powerful SQL queries to transform and analyze your data
+  </Card>
+  <Card title="Use AI Agents" icon="sparkles" href="/guides/using-ai-agents">
+    Let AI agents help you explore and understand your data
+  </Card>
+</CardGroup>

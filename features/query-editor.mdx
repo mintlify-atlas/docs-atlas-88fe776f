@@ -1,0 +1,501 @@
+---
+title: 'Query Editor'
+description: 'Write and execute SQL queries against your DuckDB tables'
+icon: 'terminal'
+---
+
+## Overview
+
+The Query Editor provides a powerful interface for writing SQL queries directly against your data. Built on DuckDB, it supports standard SQL syntax with extensions for analytical workloads.
+
+## Editor Interface
+
+The query editor is implemented in `QueryEditor.tsx` and provides:
+
+- Syntax highlighting for SQL
+- Multi-line query support
+- Keyboard shortcuts for execution
+- Command queue for batch operations
+- Real-time error reporting
+
+### Basic Usage
+
+```tsx
+import { QueryEditor } from '@/components/QueryEditor'
+
+<QueryEditor
+  query={query}
+  onQueryChange={setQuery}
+  onExecute={handleExecute}
+  error={error}
+  onErrorClose={() => setError(null)}
+  isExecuting={isExecuting}
+/>
+```
+
+## Writing Queries
+
+### Simple Selection
+
+```sql
+SELECT * FROM sales
+WHERE amount > 1000
+ORDER BY date DESC
+LIMIT 10
+```
+
+### Aggregations
+
+```sql
+SELECT 
+  category,
+  COUNT(*) as total_orders,
+  SUM(amount) as total_revenue,
+  AVG(amount) as avg_order_value
+FROM sales
+GROUP BY category
+HAVING total_revenue > 5000
+ORDER BY total_revenue DESC
+```
+
+### Joins
+
+```sql
+SELECT 
+  customers.name,
+  orders.order_date,
+  orders.total
+FROM customers
+INNER JOIN orders ON customers.id = orders.customer_id
+WHERE orders.total > 100
+```
+
+### Window Functions
+
+```sql
+SELECT 
+  product_name,
+  revenue,
+  RANK() OVER (ORDER BY revenue DESC) as revenue_rank,
+  SUM(revenue) OVER (PARTITION BY category) as category_total
+FROM product_sales
+```
+
+## Command Queue
+
+When multiple commands are queued, the editor shows progress:
+
+```tsx
+{commandQueue.length > 0 && (
+  <Badge size="xs" variant="light" color="blue">
+    {currentCommandIndex + 1} / {commandQueue.length}
+  </Badge>
+)}
+```
+
+### Queue Visualization
+
+```tsx
+<Collapse in={queueExpanded}>
+  <Stack gap={4}>
+    {remainingCommands.map((cmd, idx) => {
+      const actualIndex = currentCommandIndex + 1 + idx
+      return (
+        <Box key={idx}>
+          <Badge size="xs">{actualIndex + 1}</Badge>
+          <Text size="xs" style={{ fontFamily: 'monospace' }}>
+            {cmd.length > 80 ? cmd.slice(0, 80) + '…' : cmd}
+          </Text>
+        </Box>
+      )
+    })}
+  </Stack>
+</Collapse>
+```
+
+From `/home/daytona/workspace/source/src/components/QueryEditor.tsx:112`
+
+## Keyboard Shortcuts
+
+<AccordionGroup>
+  <Accordion title="Execute Query">
+    **Ctrl+Enter** (Windows/Linux) or **Cmd+Enter** (Mac)
+    
+    Executes the current query immediately:
+    ```tsx
+    useEffect(() => {
+      const handler = (e: KeyboardEvent) => {
+        if (
+          document.activeElement === textareaRef.current &&
+          (e.ctrlKey || e.metaKey) &&
+          e.key === 'Enter'
+        ) {
+          e.preventDefault()
+          onExecute()
+        }
+      }
+      window.addEventListener('keydown', handler)
+      return () => window.removeEventListener('keydown', handler)
+    }, [onExecute])
+    ```
+  </Accordion>
+  
+  <Accordion title="Multi-line Editing">
+    Use **Enter** to create new lines without executing.
+    
+    The textarea automatically resizes:
+    ```tsx
+    <Textarea
+      minHeight="60px"
+      maxHeight="120px"
+      resize="none"
+      overflow="auto"
+    />
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+The editor displays errors inline with helpful messages:
+
+```tsx
+{error && (
+  <Alert
+    color="red"
+    title="Query Error"
+    onClose={onErrorClose}
+    withCloseButton
+    variant="light"
+  >
+    <Text size="sm">{error}</Text>
+  </Alert>
+)}
+```
+
+### Common Errors
+
+<CodeGroup>
+
+```txt Syntax Error
+Parser Error: syntax error at or near "FROM"
+LINE 1: SELECT * FROM FROM sales
+                     ^
+```
+
+```txt Table Not Found
+Catalog Error: Table with name "saels" does not exist!
+Did you mean "sales"?
+```
+
+```txt Column Not Found
+Binder Error: Referenced column "amoun" not found in FROM clause!
+Candidate bindings: "amount", "customer_id", "date"
+```
+
+```txt Type Mismatch
+Conversion Error: Could not convert string 'abc' to INT32
+```
+
+</CodeGroup>
+
+## DuckDB Features
+
+Meridian's query editor supports DuckDB's powerful analytical features:
+
+### JSON Functions
+
+```sql
+-- Extract fields from JSON columns
+SELECT 
+  json_extract(metadata, '$.user_id') as user_id,
+  json_extract(metadata, '$.action') as action
+FROM events
+```
+
+### Date/Time Functions
+
+```sql
+-- Date manipulation
+SELECT 
+  date_trunc('month', order_date) as month,
+  COUNT(*) as orders
+FROM sales
+GROUP BY month
+ORDER BY month
+```
+
+### String Functions
+
+```sql
+-- Text processing
+SELECT 
+  UPPER(name) as name_upper,
+  CONCAT(first_name, ' ', last_name) as full_name,
+  LENGTH(description) as desc_length
+FROM products
+WHERE description LIKE '%premium%'
+```
+
+### Regular Expressions
+
+```sql
+-- Pattern matching
+SELECT email
+FROM customers
+WHERE regexp_matches(email, '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}$')
+```
+
+## Query Execution Flow
+
+Queries are executed through a multi-step process:
+
+<Steps>
+  <Step title="Parse Query">
+    DuckDB parses the SQL to check syntax:
+    ```tsx
+    const parseResult = await duckdb.parse(query)
+    if (!parseResult.success) {
+      throw new Error(parseResult.error)
+    }
+    ```
+  </Step>
+  
+  <Step title="Execute Query">
+    Query runs against the DuckDB instance:
+    ```tsx
+    const result = await queryDuckDB({ query })
+    ```
+  </Step>
+  
+  <Step title="Fetch Results">
+    Results are streamed back to the client:
+    ```tsx
+    const response = await fetch('/api/duckdb/query', {
+      method: 'POST',
+      body: JSON.stringify({ query })
+    })
+    const data = await response.json()
+    ```
+  </Step>
+  
+  <Step title="Update UI">
+    Results are displayed in the data table:
+    ```tsx
+    setTableData(data.rows)
+    setRowCount(data.rowCount)
+    ```
+  </Step>
+</Steps>
+
+## Advanced Features
+
+### CTEs (Common Table Expressions)
+
+```sql
+WITH monthly_sales AS (
+  SELECT 
+    date_trunc('month', order_date) as month,
+    SUM(amount) as total
+  FROM sales
+  GROUP BY month
+),
+moving_avg AS (
+  SELECT
+    month,
+    total,
+    AVG(total) OVER (
+      ORDER BY month
+      ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) as moving_avg_3m
+  FROM monthly_sales
+)
+SELECT * FROM moving_avg
+```
+
+### Subqueries
+
+```sql
+SELECT *
+FROM products
+WHERE price > (
+  SELECT AVG(price) FROM products WHERE category = 'Electronics'
+)
+```
+
+### CASE Statements
+
+```sql
+SELECT 
+  product_name,
+  price,
+  CASE 
+    WHEN price < 50 THEN 'Budget'
+    WHEN price < 200 THEN 'Mid-Range'
+    ELSE 'Premium'
+  END as price_tier
+FROM products
+```
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Use LIMIT for Exploration">
+    When exploring large tables, always use LIMIT:
+    ```sql
+    SELECT * FROM large_table LIMIT 100
+    ```
+    This prevents loading millions of rows into memory.
+  </Accordion>
+  
+  <Accordion title="Filter Early">
+    Apply WHERE clauses before joins and aggregations:
+    ```sql
+    -- Good: Filter first
+    SELECT * FROM (
+      SELECT * FROM sales WHERE date > '2024-01-01'
+    ) s
+    JOIN customers c ON s.customer_id = c.id
+    
+    -- Less efficient: Filter after join
+    SELECT * FROM sales s
+    JOIN customers c ON s.customer_id = c.id
+    WHERE s.date > '2024-01-01'
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Appropriate Aggregations">
+    Choose the right aggregation function:
+    ```sql
+    -- COUNT(*) is faster than COUNT(column)
+    SELECT COUNT(*) FROM sales
+    
+    -- Use DISTINCT only when necessary
+    SELECT DISTINCT category FROM products
+    ```
+  </Accordion>
+  
+  <Accordion title="Leverage Column Pruning">
+    Only select columns you need:
+    ```sql
+    -- Good: Select specific columns
+    SELECT id, name, price FROM products
+    
+    -- Less efficient: Select all columns
+    SELECT * FROM products
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Query Patterns
+
+### Top N per Group
+
+```sql
+WITH ranked AS (
+  SELECT 
+    *,
+    ROW_NUMBER() OVER (
+      PARTITION BY category 
+      ORDER BY revenue DESC
+    ) as rank
+  FROM products
+)
+SELECT * FROM ranked WHERE rank <= 5
+```
+
+### Running Totals
+
+```sql
+SELECT 
+  order_date,
+  amount,
+  SUM(amount) OVER (
+    ORDER BY order_date
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  ) as running_total
+FROM sales
+ORDER BY order_date
+```
+
+### Year-over-Year Comparison
+
+```sql
+SELECT 
+  date_trunc('month', order_date) as month,
+  SUM(amount) as current_year,
+  LAG(SUM(amount), 12) OVER (ORDER BY date_trunc('month', order_date)) as prior_year,
+  (SUM(amount) - LAG(SUM(amount), 12) OVER (ORDER BY date_trunc('month', order_date))) / 
+    LAG(SUM(amount), 12) OVER (ORDER BY date_trunc('month', order_date)) * 100 as yoy_growth
+FROM sales
+GROUP BY month
+ORDER BY month
+```
+
+## Integration with Other Features
+
+The Query Editor integrates seamlessly with other Meridian features:
+
+### With AI Agents
+
+```tsx
+// Agent generates query
+const agentQuery = await runAgent({
+  prompt: "Show top selling products",
+  tableName: "sales"
+})
+
+// Load into editor
+setQuery(agentQuery.commands[0])
+```
+
+### With Visualizations
+
+```tsx
+// Execute query
+const results = await executeQuery(query)
+
+// Create chart from results
+if (results.success) {
+  createChart({
+    type: 'bar',
+    data: results.rows,
+    xAxisKey: 'category',
+    yAxisKey: 'total'
+  })
+}
+```
+
+## API Reference
+
+The Query Editor uses the DuckDB query API:
+
+```tsx
+// Execute query
+const result = await fetch('/api/duckdb/query', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ query })
+})
+
+const data = await result.json()
+// {
+//   rows: [...],
+//   rowCount: 42,
+//   columns: [...],
+//   executionTime: 125
+// }
+```
+
+See [DuckDB Query API](/api/duckdb/query-api) for full documentation (from `/home/daytona/workspace/source/src/routes/api/duckdb/query.ts`).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Agents" icon="robot" href="/features/ai-agents">
+    Let AI generate queries for you automatically
+  </Card>
+  <Card title="Chart Visualization" icon="chart-line" href="/features/charts-visualization">
+    Visualize your query results with charts
+  </Card>
+</CardGroup>

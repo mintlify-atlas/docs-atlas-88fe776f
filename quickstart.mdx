@@ -1,80 +1,612 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with Meridian in 5 minutes - upload data, run queries, and generate insights
 ---
 
-## Get started in three steps
+# Quickstart Guide
 
-Get your documentation site running locally and make your first customization.
+Get up and running with Meridian in **less than 5 minutes**. This guide walks you through signing up, uploading your first dataset, running natural language queries, and generating AI-powered insights.
 
-### Step 1: Set up your local environment
+<Info>
+  **Prerequisites**: You'll need a Google account for authentication. No credit card required to get started.
+</Info>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Step 1: Sign Up and Access Dashboard
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Navigate to Meridian">
+    Go to your Meridian instance URL and click **Sign in with Google**.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```typescript
+    // Authentication is handled by Convex Auth
+    // Supports Google OAuth out of the box
+    const { signIn } = useAuthActions()
+    await signIn("google")
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    <Tip>
+      Meridian uses [Convex Auth](https://docs.convex.dev/auth) for secure authentication. Your data is scoped to your user account automatically.
+    </Tip>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="View the Dashboard">
+    After signing in, you'll land on the dashboard at `/dashboard`. You'll see:
 
-### Step 3: Go live
+    - **Analytics cards**: Files uploaded, tables processed, total storage used
+    - **Recent activity**: Your upload and processing history
+    - **Quick actions**: Upload file, search tables, view documentation
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <Note>
+      The dashboard uses real-time subscriptions. If you upload files in another tab or a teammate uploads data, you'll see updates instantly.
+    </Note>
+  </Step>
+</Steps>
 
-## Next steps
+## Step 2: Upload Your First Dataset
 
-Now that you have your docs running, explore these key features:
+Meridian supports two upload methods: **file upload** and **URL extraction**.
 
-<CardGroup cols={2}>
+<Tabs>
+  <Tab title="Upload CSV File">
+    ### Upload from Local File
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    <Steps>
+      <Step title="Click Upload File">
+        From the dashboard, click the **Upload File** button in the top right or from the sidebar.
+      </Step>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+      <Step title="Drag and Drop">
+        Drag a CSV, XLSX, or XLS file (max 10MB) into the dropzone or click to browse.
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+        ```typescript
+        // Supported file types from FileUpload.tsx
+        accept={[MIME_TYPES.csv, MIME_TYPES.xlsx, MIME_TYPES.xls]}
+        maxSize={10 * 1024 ** 2} // 10MB limit
+        ```
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+        Files are uploaded to **Cloudflare R2** via Convex's R2 component for cost-effective storage.
+      </Step>
 
-</CardGroup>
+      <Step title="Automatic Processing">
+        For CSV files, Meridian automatically:
+        1. Uploads to R2 storage
+        2. Creates a DuckDB table with inferred schema
+        3. Shows a success notification with row count
+
+        ```typescript
+        // From FileUpload.tsx - automatic table creation
+        const tableName = file.name
+          .replace(/\.csv$/i, '')
+          .replace(/[^a-zA-Z0-9_]/g, '_')
+          .toLowerCase()
+
+        const result = await createTableFromCSV({
+          csvUrl,
+          tableName,
+        })
+        // Returns: { tableName: "sales_data", rowCount: 15420 }
+        ```
+
+        <Info>
+          Table names are sanitized: `Sales-Data-2024.csv` becomes `sales_data_2024` in DuckDB.
+        </Info>
+      </Step>
+    </Steps>
+
+    ### Example: Upload Sales Data
+
+    Upload a CSV file named `sales_2024.csv`:
+
+    ```csv
+    date,product,revenue,region
+    2024-01-15,Widget A,1250.00,North
+    2024-01-16,Widget B,890.50,South
+    2024-01-17,Widget A,1450.00,East
+    ```
+
+    After upload, you'll see:
+    - ✅ **CSV Processed**: Created DuckDB table "sales_2024" with 3 rows
+    - 📊 Table is now queryable at `/table/sales_2024`
+  </Tab>
+
+  <Tab title="Extract from URL">
+    ### Extract Data from Web Pages
+
+    Meridian integrates with **[Firecrawl](https://firecrawl.dev)** to turn any webpage into structured data.
+
+    <Steps>
+      <Step title="Switch to URL Tab">
+        In the upload modal, click the **From URL** tab.
+      </Step>
+
+      <Step title="Enter URL and Prompt">
+        ```typescript
+        // Example inputs
+        url: "https://example.com/products"
+        prompt: "Extract all product names, prices, and descriptions"
+        ```
+
+        <Tip>
+          The prompt tells Firecrawl **what data to extract**. Be specific: "Extract company names and founding years from the table" works better than "get data".
+        </Tip>
+      </Step>
+
+      <Step title="Create Table">
+        Click **Extract Data & Create Table**. Meridian will:
+        1. Use Firecrawl to scrape and extract structured data (20%)
+        2. Convert extracted JSON to CSV format (60%)
+        3. Create a DuckDB table from the data (90%)
+        4. Show success notification with row count (100%)
+
+        ```typescript
+        // From FileUpload.tsx - URL extraction flow
+        const result = await createTableFromURL({
+          url: url.trim(),
+          prompt: prompt.trim(),
+        })
+
+        // Create table from extracted JSON
+        const tableResult = await createTableFromJSON({
+          data: result.data,
+          tableName: result.tableName,
+        })
+        ```
+      </Step>
+    </Steps>
+
+    <Warning>
+      URL extraction requires a valid Firecrawl API key. If you see an error about missing configuration, contact your admin to set `FIRECRAWL_API_KEY`.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Step 3: Run Your First Query
+
+Now that you have data loaded, let's query it.
+
+<Steps>
+  <Step title="Navigate to Table View">
+    From the dashboard, click **View Table** on any processed file. This takes you to `/table/{table_name}`.
+
+    You'll see:
+    - **Data table** with your rows and columns
+    - **Query editor** at the bottom of the page
+    - **AI agent sidebar** on the right
+  </Step>
+
+  <Step title="Try a SQL Query">
+    The query editor starts with `SELECT * FROM {table_name}`. Modify it:
+
+    ```sql
+    SELECT product, SUM(revenue) as total_revenue
+    FROM sales_2024
+    GROUP BY product
+    ORDER BY total_revenue DESC
+    ```
+
+    Press **Ctrl+Enter** (Cmd+Enter on Mac) or click **Execute** to run.
+
+    ```typescript
+    // From QueryEditor.tsx - keyboard shortcut
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      onExecute() // Executes the query
+    }
+    ```
+
+    <Tip>
+      Queries are executed server-side using DuckDB's Node API. This means no browser memory limits and 10x faster performance than WASM.
+    </Tip>
+  </Step>
+
+  <Step title="View Results">
+    Results appear instantly in the data table. The page shows:
+    - **Row count**: Total rows returned by your query
+    - **Execution time**: Logged in milliseconds
+    - **Paginated results**: 50 rows per page by default
+
+    ```typescript
+    // From table.$table.tsx - query execution
+    const startTime = Date.now()
+    const result = await queryDuckDB({ data: query })
+    const executionTime = Date.now() - startTime
+
+    // Metadata is logged to Convex
+    await logQuery({
+      query,
+      tableName: table,
+      success: true,
+      resultMetadata: {
+        rowCount: parsed.rows?.length,
+        columnCount: parsed.columns?.length,
+        executionTimeMs: executionTime,
+      },
+    })
+    ```
+
+    All queries are logged with timestamps for **full reproducibility**.
+  </Step>
+</Steps>
+
+## Step 4: Use Natural Language with AI Agent
+
+Skip SQL and ask questions in plain English.
+
+<Steps>
+  <Step title="Open Agent Panel">
+    On the table page, the right sidebar shows the **AI Agent** panel. It has two modes:
+
+    - **Query Mode**: Generates SQL queries from natural language
+    - **Analysis Mode**: Answers questions using tools (queries, charts, insights)
+
+    ```typescript
+    // From table_agent.ts - two specialized agents
+    const query_agent = new Agent(components.agent, {
+      name: 'Query Agent',
+      instructions: `You write DuckDB SQL queries...`,
+      tools: { queryDuckDB, getTableSchema, getSampleRows, ... }
+    })
+
+    const analysis_agent = new Agent(components.agent, {
+      name: 'Analysis Agent',
+      instructions: `You explore and analyze databases...`,
+      tools: { queryDuckDB, createChart, generateInsights, ... }
+    })
+    ```
+  </Step>
+
+  <Step title="Ask a Question (Query Mode)">
+    Select **Query Mode** and type:
+
+    ```
+    Show me the top 5 products by revenue
+    ```
+
+    Click **Execute** or press Enter. The agent will:
+    1. Analyze your table schema and sample rows
+    2. Generate a SQL query
+    3. Stream its reasoning: "Reading columns... Computing aggregates... Sorting results..."
+    4. Return commands you can execute
+
+    ```typescript
+    // Agent response format
+    {
+      "commands": [
+        "SELECT product, SUM(revenue) as total_revenue FROM sales_2024 GROUP BY product ORDER BY total_revenue DESC LIMIT 5"
+      ],
+      "description": "This query aggregates revenue by product and returns the top 5 highest earners"
+    }
+    ```
+
+    <Info>
+      The agent uses **Gemini 2.5 Flash** for fast, cost-effective generation. Queries stream in real-time so you see progress.
+    </Info>
+  </Step>
+
+  <Step title="Review and Execute">
+    The generated query appears in the **query editor**. You can:
+    - Edit it before running
+    - Click **Execute** to run it
+    - See the agent's reasoning in the sidebar
+
+    If the agent generates multiple commands (e.g., for complex multi-step operations), they're queued:
+
+    ```typescript
+    // From QueryEditor.tsx - command queue display
+    {commandQueue.length > 0 && (
+      <Badge size="xs">
+        {currentCommandIndex + 1} / {commandQueue.length}
+      </Badge>
+    )}
+    ```
+
+    Execute each command in sequence. Results update live.
+  </Step>
+
+  <Step title="Try Analysis Mode">
+    Switch to **Analysis Mode** and ask:
+
+    ```
+    What are the trends in this data?
+    ```
+
+    The analysis agent will:
+    - Query the table to get data
+    - Generate statistical insights
+    - Create charts automatically
+    - Stream its full reasoning with tool calls
+
+    ```typescript
+    // From table_agent.ts - analysis mode with tools
+    for await (const st_part of stream.fullStream) {
+      if (st_part.type === 'tool-call') {
+        // Show tool being called (e.g., "queryDuckDB", "createChart")
+      }
+      if (st_part.type === 'tool-result') {
+        // Show tool result (e.g., "Found 1,523 rows")
+      }
+      if (st_part.type === 'text-delta') {
+        // Stream agent's natural language explanation
+      }
+    }
+    ```
+
+    <Tip>
+      Analysis mode is perfect for exploratory work. The agent uses tools like `queryDuckDB`, `createChart`, `generateInsights`, and even `firecrawlSearch` to answer questions.
+    </Tip>
+  </Step>
+</Steps>
+
+## Step 5: Generate Insights
+
+Meridian automatically analyzes your data for patterns, outliers, and trends.
+
+<Steps>
+  <Step title="Open Insights Panel">
+    On the table page, click the **Insights** tab in the right sidebar.
+  </Step>
+
+  <Step title="Click Generate Insights">
+    Click **Generate Insights** to trigger AI analysis. Meridian will:
+
+    1. Run statistical queries using DuckDB (nulls, outliers, correlations)
+    2. Send findings to Gemini AI for interpretation
+    3. Return actionable insights with severity ratings
+
+    ```typescript
+    // From table.$table.tsx - insight generation
+    const statisticalAnalyses = await analyzeTableWithDuckDB(
+      table,
+      query,
+      dataToAnalyze.columns,
+    )
+
+    const result = await generateInsights({
+      tableName: table,
+      query: query,
+      statisticalAnalyses: statisticalAnalyses,
+      rowCount: dataToAnalyze.rows.length,
+      columnCount: dataToAnalyze.columns.length,
+    })
+    ```
+  </Step>
+
+  <Step title="Review Insights">
+    Insights appear as cards with:
+    - **Title**: Brief summary (e.g., "High revenue variance detected")
+    - **Description**: Detailed explanation
+    - **Type**: outlier, trend, aggregation, pattern, anomaly
+    - **Severity**: low, medium, high
+
+    ```typescript
+    // From InsightsPanel.tsx - insight structure
+    interface Insight {
+      title: string
+      description: string
+      type: 'outlier' | 'trend' | 'aggregation' | 'pattern' | 'anomaly'
+      severity: 'low' | 'medium' | 'high'
+    }
+    ```
+
+    Example insight:
+    ```json
+    {
+      "title": "Revenue spike in Q4",
+      "description": "Revenue increased 340% in October-December compared to previous quarters, driven primarily by Widget A sales in the North region",
+      "type": "trend",
+      "severity": "high"
+    }
+    ```
+
+    <Info>
+      Insights are cached per query. Click **Refresh** to regenerate with new AI analysis. Cache is scoped to user + table + query hash.
+    </Info>
+  </Step>
+</Steps>
+
+## Step 6: View Live Statistics
+
+Switch to the **Statistics** tab to see auto-generated statistical findings.
+
+```typescript
+// From table.$table.tsx - automatic statistical analysis
+useEffect(() => {
+  if (data && data.rows.length > 0) {
+    const statisticalAnalyses = await analyzeTableWithDuckDB(
+      table,
+      'SELECT * FROM ' + table,
+      data.columns,
+    )
+    setStatisticalFindings(statisticalAnalyses)
+  }
+}, [data])
+```
+
+You'll see:
+- **Column summaries**: Min, max, mean, median, stddev for numeric columns
+- **Null counts**: Percentage of missing values per column
+- **Data quality**: Duplicate detection, outlier identification
+- **Distributions**: Histograms and frequency counts
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Statistical findings update automatically when you execute queries. They're computed server-side using DuckDB's analytical functions.
 </Note>
+
+## Step 7: Create Charts with AI
+
+Use the analysis agent to create interactive, draggable charts.
+
+<Steps>
+  <Step title="Ask for a Chart">
+    In Analysis Mode, type:
+
+    ```
+    Create a bar chart showing revenue by product
+    ```
+
+    The agent will:
+    1. Query the data
+    2. Determine appropriate chart type
+    3. Configure axes and series
+    4. Return a chart config
+
+    ```typescript
+    // From agent_tools.ts - createChart tool
+    createChart: {
+      description: "Create an interactive chart from query results",
+      parameters: z.object({
+        chartType: z.enum(['bar', 'line', 'area', 'pie', 'donut', 'scatter']),
+        title: z.string(),
+        query: z.string(),
+        xAxis: z.string(),
+        yAxis: z.string(),
+      }),
+      execute: async ({ chartType, title, query, xAxis, yAxis }) => {
+        // Execute query and build chart config
+      },
+    }
+    ```
+  </Step>
+
+  <Step title="View in Charts Tab">
+    Click the **Charts** tab. Your chart appears on a draggable canvas.
+
+    You can:
+    - **Drag charts** by clicking the header
+    - **Remove charts** with the X button
+    - **See live updates** when data changes
+
+    ```typescript
+    // From ChartCanvas.tsx - draggable implementation
+    const handlePointerDown = (e: React.PointerEvent) => {
+      // Capture pointer and canvas rect
+      dragOffsetRef.current = {
+        x: e.clientX - canvasLeft - position.x,
+        y: e.clientY - canvasTop - position.y,
+      }
+      setIsDragging(true)
+    }
+    ```
+
+    <Tip>
+      Charts automatically re-execute their queries when you modify data. If you UPDATE a row, all charts refresh with new data.
+    </Tip>
+  </Step>
+</Steps>
+
+## Step 8: Collaborate in Real-Time
+
+Meridian's killer feature: **live collaboration**.
+
+<Steps>
+  <Step title="Watch Live Notifications">
+    On the table page, live notifications appear when teammates:
+    - Execute queries
+    - Generate insights
+    - Create charts
+    - Ask AI agents questions
+
+    ```typescript
+    // From TableNotifications.tsx - real-time subscription
+    const notifications = useQuery(api.notifications.getNotifications, {
+      tableName,
+    })
+
+    // Broadcasts appear as toasts
+    notifications.show({
+      title: `${userName} executed a query`,
+      message: queryPreview,
+    })
+    ```
+  </Step>
+
+  <Step title="See Query History">
+    Click the **History** tab in the sidebar to see:
+    - All queries executed on this table
+    - Who ran them and when
+    - Success/failure status
+    - Execution times
+
+    ```typescript
+    // From schema.ts - queryLog table
+    queryLog: defineTable({
+      query: v.string(),
+      executedAt: v.number(),
+      userId: v.string(),
+      tableName: v.string(),
+      success: v.boolean(),
+      resultMetadata: v.optional(v.object({
+        rowCount: v.optional(v.number()),
+        executionTimeMs: v.optional(v.number()),
+      })),
+    })
+    ```
+
+    Click any query to see its full details and results.
+  </Step>
+
+  <Step title="Rollback to Previous State">
+    From the history panel, click **Rollback** on any query to restore the table to that point in time.
+
+    <Warning>
+      Rollback is experimental. It replays all queries up to the selected point. For large tables, this can take time.
+    </Warning>
+  </Step>
+</Steps>
+
+## What's Next?
+
+You've completed the quickstart! You now know how to:
+
+✅ Upload data (CSV or URL extraction)  
+✅ Run SQL queries with the editor  
+✅ Use natural language with AI agents  
+✅ Generate automatic insights  
+✅ View statistical findings  
+✅ Create interactive charts  
+✅ Collaborate in real-time  
+
+<CardGroup cols={2}>
+  <Card title="Explore Key Features" icon="star" href="/key-features">
+    Deep dive into all 10 core features with advanced examples
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Learn about the query API, agent tools, and chart configurations
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Upload Failed: File Too Large">
+    Meridian has a 10MB limit per file. For larger datasets:
+    1. Split the CSV into chunks
+    2. Upload to R2 externally and provide a URL
+    3. Contact support for enterprise limits
+  </Accordion>
+
+  <Accordion title="Query Hangs or Times Out">
+    Server-side queries have a timeout. For very large tables:
+    1. Add WHERE clauses to filter data
+    2. Use LIMIT to restrict result size
+    3. Create aggregated views for common queries
+  </Accordion>
+
+  <Accordion title="Agent Returns Invalid SQL">
+    The AI agent occasionally generates syntax errors. To fix:
+    1. Edit the query in the query editor
+    2. Check table schema for correct column names
+    3. Provide more context in your prompt ("use the revenue column, not price")
+  </Accordion>
+
+  <Accordion title="Insights Not Generating">
+    If insights fail:
+    1. Ensure your query returns data (at least 1 row)
+    2. Check that Gemini API key is configured
+    3. Try clicking Refresh to bypass cache
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  For more help, use Ctrl+K (Cmd+K) to open the command palette and search tables, files, or quick actions.
+</Tip>

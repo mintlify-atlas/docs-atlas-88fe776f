@@ -1,0 +1,544 @@
+---
+title: 'Data Operations'
+description: 'Advanced DuckDB operations including analytics queries and data integration'
+---
+
+## Overview
+
+Meridian provides specialized data operations for analytics, querying, and integration with the Convex backend. These operations support real-time insights generation and complex data transformations.
+
+## Analytics Queries
+
+### Query DuckDB Analytics
+
+Execute analytics queries with structured output for insights generation.
+
+#### Function Signature
+
+```typescript
+queryDuckDBAnalytics(query: string)
+```
+
+**Parameters:**
+
+- `query` (string): SQL query to execute
+
+#### Response Format
+
+```typescript
+{
+  columns: [
+    { name: string, type: string }
+  ],
+  rows: Array<Record<string, any>>
+}
+```
+
+#### Difference from Standard Query
+
+Source: `src/utils/duckdb.ts:152`
+
+Unlike the standard `queryDuckDB` function, `queryDuckDBAnalytics` returns structured objects directly without JSON stringification:
+
+**Standard Query:**
+
+```typescript
+// Returns: string (JSON.stringify)
+const result = await queryDuckDB({ data: query })
+const parsed = JSON.parse(result)
+```
+
+**Analytics Query:**
+
+```typescript
+// Returns: object (direct)
+const result = await queryDuckDBAnalytics({ data: query })
+// result.columns and result.rows are immediately accessible
+```
+
+#### Usage Example
+
+```typescript
+import { queryDuckDBAnalytics } from '~/utils/duckdb'
+
+const result = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      product_category,
+      SUM(revenue) as total_revenue,
+      COUNT(*) as order_count,
+      AVG(order_value) as avg_order_value
+    FROM sales
+    WHERE order_date >= '2026-01-01'
+    GROUP BY product_category
+    ORDER BY total_revenue DESC
+  `
+})
+
+console.log('Analytics Results:')
+result.rows.forEach(row => {
+  console.log(`${row.product_category}: $${row.total_revenue}`)
+})
+```
+
+## Query Operations
+
+### Standard Query Function
+
+Execute general SQL queries with automatic type conversion.
+
+#### Function Signature
+
+```typescript
+queryDuckDB(query: string)
+```
+
+**Parameters:**
+
+- `query` (string): SQL query to execute
+
+#### Response Format
+
+Returns a JSON string:
+
+```typescript
+// Stringified JSON
+'{"columns":[...],"rows":[...]}'
+```
+
+#### Usage Example
+
+```typescript
+import { queryDuckDB } from '~/utils/duckdb'
+
+const result = await queryDuckDB({
+  data: 'SELECT * FROM users WHERE active = true'
+})
+
+const parsed = JSON.parse(result)
+console.log(`Found ${parsed.rows.length} active users`)
+```
+
+### Query Execution Flow
+
+Source: `src/utils/duckdb.ts:34`
+
+1. **Get Database Connection**
+   ```typescript
+   const db = await getDuckDB()
+   const connection = await db.connect()
+   ```
+
+2. **Execute Query**
+   ```typescript
+   const result = await connection.run(query)
+   const rawRows = await result.getRows()
+   ```
+
+3. **Process Column Metadata**
+   ```typescript
+   const columnCount = result.columnCount
+   const columns = Array.from({ length: columnCount }, (_, i) => ({
+     name: result.columnName(i),
+     type: String(result.columnType(i))
+   }))
+   ```
+
+4. **Transform Rows**
+   ```typescript
+   const rows = rawRows.map(row => {
+     // Type conversions applied here
+   })
+   ```
+
+5. **Close Connection**
+   ```typescript
+   connection.closeSync()
+   ```
+
+## Data Type Conversions
+
+### BigInt Handling
+
+Source: `src/utils/duckdb.ts:54`
+
+DuckDB `BIGINT` values are converted to JavaScript numbers:
+
+```typescript
+if (typeof value === 'bigint') {
+  rowObj[col.name] = Number(value)
+}
+```
+
+**Example:**
+
+```typescript
+// DuckDB
+BIGINT: 9007199254740991n
+
+// Converted to
+number: 9007199254740991
+```
+
+<Warning>
+  BigInt values larger than `Number.MAX_SAFE_INTEGER` (2^53 - 1) may lose precision when converted to JavaScript numbers.
+</Warning>
+
+### Date Handling
+
+Source: `src/utils/duckdb.ts:58`
+
+DuckDB stores dates as days since epoch. The conversion process:
+
+```typescript
+if (value && typeof value === 'object' && 'days' in value) {
+  const date = new Date(1970, 0, 1)
+  date.setDate(date.getDate() + value.days)
+  rowObj[col.name] = date.toISOString().split('T')[0]
+}
+```
+
+**Example:**
+
+```typescript
+// DuckDB internal representation
+{ days: 20513 }
+
+// Converted to ISO date string
+"2026-03-01"
+```
+
+### Null Handling
+
+Source: `src/utils/duckdb.ts:65`
+
+Both `null` and `undefined` values are normalized:
+
+```typescript
+if (value === null || value === undefined) {
+  rowObj[col.name] = null
+}
+```
+
+### Other Types
+
+Source: `src/utils/duckdb.ts:69`
+
+All other types pass through unchanged:
+
+```typescript
+else {
+  rowObj[col.name] = value
+}
+```
+
+## Analytics Use Cases
+
+### Time Series Analysis
+
+```typescript
+const result = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      DATE_TRUNC('hour', timestamp) as hour,
+      COUNT(*) as event_count,
+      COUNT(DISTINCT user_id) as unique_users
+    FROM events
+    WHERE timestamp >= NOW() - INTERVAL '24 hours'
+    GROUP BY hour
+    ORDER BY hour
+  `
+})
+```
+
+### Cohort Analysis
+
+```typescript
+const result = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      DATE_TRUNC('month', signup_date) as cohort_month,
+      COUNT(*) as cohort_size,
+      SUM(CASE WHEN last_active >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END) as active_users,
+      ROUND(100.0 * active_users / cohort_size, 2) as retention_rate
+    FROM users
+    GROUP BY cohort_month
+    ORDER BY cohort_month DESC
+  `
+})
+```
+
+### Funnel Analysis
+
+```typescript
+const result = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      step,
+      COUNT(DISTINCT user_id) as users,
+      ROUND(100.0 * users / FIRST_VALUE(users) OVER (ORDER BY step), 2) as conversion_rate
+    FROM (
+      SELECT user_id, 'page_view' as step FROM page_views
+      UNION ALL
+      SELECT user_id, 'add_to_cart' as step FROM cart_additions
+      UNION ALL
+      SELECT user_id, 'checkout' as step FROM checkouts
+      UNION ALL
+      SELECT user_id, 'purchase' as step FROM purchases
+    )
+    GROUP BY step
+    ORDER BY step
+  `
+})
+```
+
+### Revenue Analytics
+
+```typescript
+const result = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      DATE_TRUNC('day', order_date) as date,
+      SUM(total_amount) as revenue,
+      COUNT(*) as order_count,
+      AVG(total_amount) as avg_order_value,
+      SUM(total_amount) - LAG(SUM(total_amount)) OVER (ORDER BY DATE_TRUNC('day', order_date)) as revenue_change
+    FROM orders
+    WHERE order_date >= NOW() - INTERVAL '90 days'
+    GROUP BY date
+    ORDER BY date DESC
+  `
+})
+```
+
+## Integration with Convex
+
+### Data Flow Architecture
+
+Meridian uses DuckDB for analytical processing and Convex for operational data storage:
+
+```
+Convex (Operational) → DuckDB (Analytics) → Insights
+     ↓                        ↓
+  CRUD Operations      Complex Queries
+  Real-time Sync       Aggregations
+  Document Storage     Time Series
+```
+
+### Syncing Data from Convex
+
+#### Example: User Data Sync
+
+```typescript
+import { createTableFromJSON } from '~/utils/duckdb'
+import { api } from '~/convex/_generated/api'
+
+// Fetch data from Convex
+const users = await convex.query(api.users.list)
+
+// Create DuckDB table for analytics
+await createTableFromJSON({
+  data: users,
+  tableName: 'users_analytics'
+})
+
+// Run analytics queries
+const insights = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      signup_source,
+      COUNT(*) as user_count,
+      AVG(session_count) as avg_sessions
+    FROM users_analytics
+    GROUP BY signup_source
+  `
+})
+```
+
+#### Example: Event Stream Processing
+
+```typescript
+import { createTableFromJSON } from '~/utils/duckdb'
+
+// Fetch events from Convex
+const events = await convex.query(api.events.getRecent, {
+  since: Date.now() - 24 * 60 * 60 * 1000 // Last 24 hours
+})
+
+// Load into DuckDB for analysis
+await createTableFromJSON({
+  data: events,
+  tableName: 'events_24h'
+})
+
+// Analyze event patterns
+const patterns = await queryDuckDBAnalytics({
+  data: `
+    SELECT 
+      event_type,
+      COUNT(*) as count,
+      COUNT(DISTINCT user_id) as unique_users,
+      ROUND(AVG(duration_ms), 2) as avg_duration
+    FROM events_24h
+    GROUP BY event_type
+    ORDER BY count DESC
+  `
+})
+```
+
+## Performance Optimization
+
+### Connection Pooling
+
+Source: `src/utils/duckdb.ts:12`
+
+A singleton DuckDB instance is used across all operations:
+
+```typescript
+let duckDBInstance: DuckDBInstance | null = null
+
+export const getDuckDB = createServerOnlyFn(async () => {
+  if (!duckDBInstance) {
+    duckDBInstance = await DuckDBInstance.create(...)
+  }
+  return duckDBInstance
+})
+```
+
+**Benefits:**
+
+- Reuses connection to MotherDuck
+- Reduces connection overhead
+- Maintains session state
+- Improves query performance
+
+### Query Optimization Tips
+
+#### Use Column Projections
+
+```sql
+-- Good: Select only needed columns
+SELECT id, name, email FROM users
+
+-- Avoid: Select all columns
+SELECT * FROM users
+```
+
+#### Leverage Aggregation Pushdown
+
+```sql
+-- Good: Aggregation before join
+SELECT u.name, stats.total_orders
+FROM users u
+JOIN (SELECT user_id, COUNT(*) as total_orders FROM orders GROUP BY user_id) stats
+  ON u.id = stats.user_id
+
+-- Avoid: Join before aggregation
+SELECT u.name, COUNT(o.id) as total_orders
+FROM users u
+JOIN orders o ON u.id = o.user_id
+GROUP BY u.name
+```
+
+#### Use LIMIT for Exploratory Queries
+
+```sql
+-- Good: Limit results during development
+SELECT * FROM large_table LIMIT 100
+
+-- Avoid: Fetching all rows unnecessarily
+SELECT * FROM large_table
+```
+
+#### Filter Early with WHERE
+
+```sql
+-- Good: Filter before complex operations
+SELECT product, SUM(revenue)
+FROM sales
+WHERE sale_date >= '2026-01-01'
+GROUP BY product
+
+-- Avoid: Filter after aggregation
+SELECT product, SUM(revenue) as total
+FROM sales
+GROUP BY product
+HAVING MAX(sale_date) >= '2026-01-01'
+```
+
+## Error Handling
+
+### Connection Errors
+
+```typescript
+try {
+  const db = await getDuckDB()
+} catch (error) {
+  // Handle: MD_ACCESS_TOKEN not set
+  // Handle: Network connectivity issues
+  // Handle: Invalid MotherDuck credentials
+}
+```
+
+### Query Execution Errors
+
+```typescript
+try {
+  const result = await queryDuckDB({ data: query })
+} catch (error) {
+  // Handle: SQL syntax errors
+  // Handle: Table/column not found
+  // Handle: Type conversion errors
+  // Handle: Timeout errors
+}
+```
+
+### Resource Cleanup
+
+Source: `src/utils/duckdb.ts:76`
+
+Connections are always closed after use:
+
+```typescript
+try {
+  const connection = await db.connect()
+  const result = await connection.run(query)
+  // Process results...
+} finally {
+  connection.closeSync()
+}
+```
+
+## Best Practices
+
+### Query Design
+
+- Use `queryDuckDBAnalytics` for insights generation
+- Use `queryDuckDB` for API endpoints
+- Always close connections after use
+- Handle BigInt precision limitations
+- Test queries with sample data first
+
+### Data Integration
+
+- Sync Convex data periodically for analytics
+- Use appropriate refresh intervals
+- Monitor DuckDB table sizes
+- Archive old analytical data
+- Consider incremental updates
+
+### Monitoring
+
+- Log query execution times
+- Track connection pool usage
+- Monitor memory consumption
+- Alert on query failures
+- Profile slow queries
+
+### Security
+
+- Validate SQL queries before execution
+- Use parameterized queries when possible
+- Restrict access to sensitive tables
+- Audit query patterns for abuse
+- Rotate MotherDuck tokens regularly

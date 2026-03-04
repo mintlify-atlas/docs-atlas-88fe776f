@@ -1,0 +1,382 @@
+---
+title: 'Schema Management'
+description: 'Create and manage DuckDB tables from CSV and JSON data sources'
+---
+
+## Overview
+
+Meridian provides powerful utilities for creating and managing DuckDB tables from various data sources. The schema management system automatically infers data types, handles nested structures, and integrates with cloud storage.
+
+## Table Creation Methods
+
+### Create Table from CSV
+
+Import CSV files from cloud storage (Cloudflare R2) and automatically create DuckDB tables with inferred schemas.
+
+#### Function Signature
+
+```typescript
+createTableFromCSV({ csvUrl, tableName })
+```
+
+**Parameters:**
+
+- `csvUrl` (string): URL to the CSV file (e.g., Cloudflare R2 URL)
+- `tableName` (string): Desired table name (will be sanitized)
+
+#### Response
+
+```typescript
+{
+  success: true,
+  tableName: "sanitized_table_name",
+  rowCount: 1000
+}
+```
+
+#### Usage Example
+
+```typescript
+import { createTableFromCSV } from '~/utils/duckdb'
+
+const result = await createTableFromCSV({
+  csvUrl: 'https://r2.example.com/data/customers.csv',
+  tableName: 'customers'
+})
+
+console.log(`Created table ${result.tableName} with ${result.rowCount} rows`)
+```
+
+#### Implementation Details
+
+Source: `src/utils/duckdb.ts:80`
+
+The function:
+
+1. Fetches CSV content from the provided URL
+2. Writes content to a temporary file in `/tmp`
+3. Uses DuckDB's `read_csv_auto()` for automatic schema detection
+4. Creates the table and imports all data
+5. Cleans up temporary files automatically
+
+#### CSV Schema Detection
+
+DuckDB's `read_csv_auto()` automatically detects:
+
+- Column names from header row
+- Data types (INTEGER, DOUBLE, VARCHAR, DATE, etc.)
+- Delimiter characters (comma, tab, pipe, etc.)
+- Quote characters and escape sequences
+- Null value representations
+
+### Create Table from JSON
+
+Import JSON data directly into DuckDB with automatic type inference and nested structure flattening.
+
+#### Function Signature
+
+```typescript
+createTableFromJSON({ data, tableName })
+```
+
+**Parameters:**
+
+- `data` (array): Array of JSON objects to import
+- `tableName` (string): Desired table name (will be sanitized)
+
+#### Response
+
+```typescript
+{
+  success: true,
+  tableName: "sanitized_table_name",
+  rowCount: 500,
+  columnCount: 12
+}
+```
+
+#### Usage Example
+
+```typescript
+import { createTableFromJSON } from '~/utils/duckdb'
+
+const userData = [
+  { id: 1, name: 'Alice', email: 'alice@example.com', active: true },
+  { id: 2, name: 'Bob', email: 'bob@example.com', active: false }
+]
+
+const result = await createTableFromJSON({
+  data: userData,
+  tableName: 'users'
+})
+```
+
+#### Nested JSON Flattening
+
+Source: `src/utils/duckdb.ts:281`
+
+The function automatically flattens nested JSON structures:
+
+**Input:**
+
+```json
+[
+  {
+    "order_id": 1,
+    "customer": "John Doe",
+    "items": [
+      { "product": "Widget", "price": 10.99 },
+      { "product": "Gadget", "price": 24.99 }
+    ]
+  }
+]
+```
+
+**Output (2 rows):**
+
+```json
+[
+  { "order_id": 1, "customer": "John Doe", "product": "Widget", "price": 10.99 },
+  { "order_id": 1, "customer": "John Doe", "product": "Gadget", "price": 24.99 }
+]
+```
+
+Arrays of objects are expanded into separate rows, preserving parent-level fields.
+
+## Type Inference
+
+### Automatic Type Detection
+
+Source: `src/utils/duckdb.ts:201`
+
+The system automatically infers DuckDB types from JavaScript values:
+
+| JavaScript Type | DuckDB Type | Notes |
+|----------------|-------------|-------|
+| `boolean` | `BOOLEAN` | Direct mapping |
+| `number` (integer) | `BIGINT` | For whole numbers |
+| `number` (float) | `DOUBLE` | For decimal numbers |
+| `string` | `VARCHAR` | Default text type |
+| `Date` | `DATE` | Date objects |
+| `object` | `VARCHAR` | Stored as JSON string |
+| `null` / `undefined` | `VARCHAR` | Default for nullable columns |
+
+### Type Determination Algorithm
+
+Source: `src/utils/duckdb.ts:229`
+
+For each column, the system:
+
+1. Collects all non-null values
+2. Checks if all values are the same JavaScript type
+3. If mixed types, defaults to `VARCHAR`
+4. For consistent types, infers the most appropriate DuckDB type
+5. Objects and arrays are stored as JSON strings in `VARCHAR` columns
+
+## Table Name Sanitization
+
+Source: `src/utils/duckdb.ts:104`, `src/utils/duckdb.ts:380`
+
+Table names are automatically sanitized to ensure SQL compatibility:
+
+```typescript
+// Invalid characters replaced with underscore
+'my-table-name' → 'my_table_name'
+'users@2024' → 'users_2024'
+'table#1' → 'table_1'
+```
+
+### Sanitization Rules
+
+- Only alphanumeric characters and underscores are allowed
+- All other characters are replaced with `_`
+- Pattern: `/[^a-zA-Z0-9_]/g`
+
+## Column Name Sanitization
+
+Source: `src/utils/duckdb.ts:255`
+
+Column names are sanitized using similar rules:
+
+```typescript
+'user-id' → 'user_id'
+'email@domain' → 'email_domain'
+'123column' → '_123column' // Numbers prefix gets underscore
+```
+
+### Sanitization Rules
+
+- Invalid characters replaced with underscore
+- Column names starting with numbers get `_` prefix
+- Pattern: `/[^a-zA-Z0-9_]/g` and `/^[0-9]/`
+
+## SQL Value Escaping
+
+Source: `src/utils/duckdb.ts:261`
+
+The system safely escapes values for SQL insertion:
+
+### Boolean Values
+
+```sql
+true → TRUE
+false → FALSE
+```
+
+### Numeric Values
+
+```sql
+42 → 42
+3.14159 → 3.14159
+```
+
+### String Values
+
+```sql
+"Hello" → 'Hello'
+"O'Brien" → 'O''Brien' -- Single quotes escaped
+```
+
+### Null Values
+
+```sql
+null → NULL
+undefined → NULL
+```
+
+### Object Values
+
+```sql
+{ "key": "value" } → '{"key":"value"}'
+```
+
+## Error Handling
+
+### Common Errors
+
+#### Empty Data Array
+
+```typescript
+throw new Error('JSON data must be a non-empty array')
+```
+
+#### No Columns Found
+
+```typescript
+throw new Error('No columns found in JSON data')
+```
+
+#### CSV Fetch Failure
+
+```typescript
+throw new Error('Failed to fetch CSV: 404 Not Found')
+```
+
+### Cleanup and Resource Management
+
+Source: `src/utils/duckdb.ts:138`
+
+Temporary files are automatically cleaned up:
+
+```typescript
+finally {
+  if (tempFilePath) {
+    try {
+      unlinkSync(tempFilePath)
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError)
+    }
+  }
+}
+```
+
+## Table Operations
+
+### Drop and Recreate
+
+Both functions automatically drop existing tables before creation:
+
+```sql
+DROP TABLE IF EXISTS table_name
+```
+
+This ensures:
+
+- Fresh schema on each import
+- No conflicts with existing tables
+- Clean data without duplicates
+
+### Row Count Verification
+
+After table creation, the system verifies the import:
+
+```sql
+SELECT COUNT(*) as row_count FROM table_name
+```
+
+This confirms:
+
+- All data was imported successfully
+- Table is queryable
+- No errors during import
+
+## Integration with MotherDuck
+
+Source: `src/utils/duckdb.ts:18`
+
+All table operations use the shared DuckDB instance:
+
+```typescript
+const db = await getDuckDB()
+const connection = await db.connect()
+```
+
+### Connection String
+
+```typescript
+`md:my_db?token=${encodedToken}`
+```
+
+- `md:` - MotherDuck protocol
+- `my_db` - Database name
+- `token` - Encoded access token from `MD_ACCESS_TOKEN` environment variable
+
+### Environment Setup
+
+Source: `src/utils/duckdb.ts:14`
+
+```typescript
+process.env.HOME = '/tmp'
+```
+
+Required for serverless environments where home directory may not be writable.
+
+## Best Practices
+
+### CSV Imports
+
+- Use stable, publicly accessible URLs
+- Ensure CSV files have header rows
+- Validate CSV structure before import
+- Monitor file sizes for performance
+
+### JSON Imports
+
+- Validate JSON structure before import
+- Be aware of nested array expansion
+- Consider pre-flattening complex structures
+- Monitor memory usage for large datasets
+
+### Schema Design
+
+- Use descriptive table names
+- Avoid special characters in column names
+- Consider type casting for mixed-type columns
+- Plan for null values in your schema
+
+### Performance
+
+- Batch multiple inserts when possible
+- Create indexes on frequently queried columns
+- Use appropriate data types to minimize storage
+- Consider partitioning for very large tables
